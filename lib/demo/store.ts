@@ -39,7 +39,10 @@ function emptyState(): DemoState {
 
 let memory: DemoState | null = null;
 const listeners = new Set<() => void>();
-export function subscribeDemo(listener: () => void) { listeners.add(listener); return () => listeners.delete(listener); }
+export function subscribeDemo(listener: () => void) {
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
+}
 function emit() { listeners.forEach((l) => l()); }
 
 export async function loadDemoState(): Promise<DemoState> {
@@ -111,6 +114,13 @@ export const demoApi = {
     return profile;
   },
   async signOut() { const state = await loadDemoState(); state.currentUserId = null; await save(state); },
+  async resetPassword(_email: string) {
+    throw new Error('Password reset emails require Supabase Auth.');
+  },
+  async findProfileByEmail(email: string) {
+    const state = await loadDemoState();
+    return state.profiles.find((profile) => profile.email === email.trim().toLowerCase()) ?? null;
+  },
   async updateProfile(userId: string, patch: Partial<Profile>) {
     const state = await loadDemoState();
     const idx = state.profiles.findIndex((p) => p.id === userId);
@@ -411,4 +421,5 @@ export const demoApi = {
     await save(state);
     return state;
   },
+  async resetDemo() { return resetDemoState(); },
 };
