@@ -4,6 +4,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Screen } from '@/components/ui/Screen';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
+import { VerifiedBadge } from '@/components/ui/VerifiedBadge';
 import { LoadingState } from '@/components/ui/LoadingState';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useAuth } from '@/contexts/AuthContext';
@@ -45,7 +46,7 @@ export default function PersonDetailScreen() {
       <Text style={styles.section}>Professionals they recommend</Text>
       {recs.length === 0 ? <Text style={styles.muted}>No recommendations visible to you.</Text> : recs.map(({ rec, pro }) => (
         <Pressable key={rec.id} style={styles.card} onPress={() => router.push(`/professional/${pro.id}`)}>
-          <Text style={styles.cardTitle}>{pro.name}</Text>
+          <View style={styles.titleLine}><Text style={styles.cardTitle}>{pro.name}</Text>{pro.is_verified ? <VerifiedBadge /> : null}</View>
           <Text style={styles.cardBody}>{pro.category}</Text>
           {profile.privacy.acceptIntroductions ? (
             <Button title="Request introduction" variant="secondary" onPress={() => router.push({ pathname: '/request-intro', params: { professionalId: pro.id, intermediaryId: profile.id } })} style={{ marginTop: spacing.sm }} />
@@ -62,6 +63,7 @@ const styles = StyleSheet.create({
   section: { ...typography.h3, color: colors.text.primary, marginBottom: spacing.sm },
   muted: { ...typography.caption, color: colors.text.muted },
   card: { backgroundColor: colors.surface.card, borderRadius: radii.md, padding: spacing.md, marginBottom: spacing.sm, borderWidth: 1, borderColor: colors.surface.border },
+  titleLine: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.sm },
   cardTitle: { ...typography.bodyMedium, color: colors.text.primary },
   cardBody: { ...typography.caption, color: colors.text.secondary },
 });

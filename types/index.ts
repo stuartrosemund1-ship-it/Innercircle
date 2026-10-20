@@ -34,7 +34,8 @@ export interface Professional {
   category: ProfessionalCategory; bio: string | null; location: string | null;
   website: string | null; contact_email: string | null; contact_phone: string | null;
   experience: string | null; availability: string | null; avatar_url: string | null;
-  verification_status: 'unverified' | 'pending' | 'verified'; created_at: string;
+  verification_status: 'unverified' | 'pending' | 'verified';
+  is_verified: boolean; verified_at: string | null; created_at: string;
 }
 export interface ProfessionalRecommendation {
   id: string; recommender_id: string; professional_id: string; note: string | null;

@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/Button';
 import { LoadingState } from '@/components/ui/LoadingState';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { Avatar } from '@/components/ui/Avatar';
+import { VerifiedBadge } from '@/components/ui/VerifiedBadge';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCircleData } from '@/hooks/useCircleData';
 import { colors, radii, shadows, spacing, typography } from '@/constants/theme';
@@ -50,7 +51,10 @@ export default function HomeScreen() {
           <View style={styles.row}>
             <Avatar name={recommender.full_name} uri={recommender.avatar_url} size={40} />
             <View style={{ flex: 1 }}>
-              <Text style={styles.cardTitle}>{recommender.full_name} has shared {pro.name} with you</Text>
+              <View style={styles.titleLine}>
+                <Text style={styles.cardTitle}>{recommender.full_name} has shared {pro.name} with you</Text>
+                {pro.is_verified ? <VerifiedBadge /> : null}
+              </View>
               <Text style={styles.cardBody}>{pro.category}</Text>
             </View>
           </View>
@@ -61,7 +65,10 @@ export default function HomeScreen() {
         <View style={styles.card}><Text style={styles.cardBody}>When a connection recommends a professional, you can request an introduction here.</Text></View>
       ) : recCards.slice(0, 3).map(({ recommender, pro }) => (
         <Pressable key={`sug-${pro.id}-${recommender.id}`} style={styles.card} onPress={() => router.push({ pathname: '/request-intro', params: { professionalId: pro.id, intermediaryId: recommender.id } })}>
-          <Text style={styles.cardTitle}>Your friend {firstName(recommender.full_name)} can introduce you to {pro.name}</Text>
+          <View style={styles.titleLine}>
+            <Text style={styles.cardTitle}>Your friend {firstName(recommender.full_name)} can introduce you to {pro.name}</Text>
+            {pro.is_verified ? <VerifiedBadge /> : null}
+          </View>
           <Text style={styles.cardBody}>Request an introduction — trust is never transferred automatically.</Text>
         </Pressable>
       ))}
@@ -92,6 +99,7 @@ const styles = StyleSheet.create({
   section: { ...typography.h3, color: colors.text.primary, marginBottom: spacing.sm, marginTop: spacing.md },
   actionGap: { marginTop: spacing.sm },
   card: { backgroundColor: colors.surface.card, borderRadius: radii.md, padding: spacing.md, marginBottom: spacing.sm, borderWidth: 1, borderColor: colors.surface.border },
+  titleLine: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.sm },
   cardTitle: { ...typography.bodyMedium, color: colors.text.primary },
   cardBody: { ...typography.caption, color: colors.text.secondary, marginTop: 4 },
   row: { flexDirection: 'row', gap: spacing.sm, alignItems: 'center' },

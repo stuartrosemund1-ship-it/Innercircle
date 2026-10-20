@@ -8,7 +8,7 @@ import {
 } from '@/types';
 
 const PROFILE_COLUMNS = 'id, email, full_name, avatar_url, bio, city, interests, privacy, onboarding_completed, created_at';
-const PROFESSIONAL_COLUMNS = 'id, owner_user_id, created_by, name, category, bio, location, experience, availability, avatar_url, verification_status, created_at';
+const PROFESSIONAL_COLUMNS = 'id, owner_user_id, created_by, name, category, bio, location, experience, availability, avatar_url, verification_status, is_verified, verified_at, created_at';
 const CONTACT_COLUMNS = 'professional_id, contact_email, contact_phone, website';
 
 export interface AppSnapshot {
@@ -85,7 +85,9 @@ function mapProfessional(row: Omit<Professional, 'website' | 'contact_email' | '
   return {
     ...row,
     owner_user_id: row.owner_user_id ?? null,
-    created_by: row.created_by,
+    created_by: row.created_by ?? '',
+    is_verified: Boolean(row.is_verified),
+    verified_at: row.verified_at ?? null,
     bio: row.bio ?? null,
     location: row.location ?? null,
     experience: row.experience ?? null,
@@ -330,7 +332,7 @@ export const supabaseApi = {
     emit();
     return data as Connection;
   },
-  async createProfessional(userId: string, data: Omit<Professional, 'id' | 'created_at' | 'created_by' | 'verification_status' | 'owner_user_id'> & { owner_user_id?: string | null }) {
+  async createProfessional(userId: string, data: Omit<Professional, 'id' | 'created_at' | 'created_by' | 'verification_status' | 'is_verified' | 'verified_at' | 'owner_user_id'> & { owner_user_id?: string | null }) {
     await assertSelf(userId);
     const { data: row, error } = await db().from('professionals').insert({
       owner_user_id: data.owner_user_id ?? null,

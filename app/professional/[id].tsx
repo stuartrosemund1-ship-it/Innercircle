@@ -5,6 +5,7 @@ import { Screen } from '@/components/ui/Screen';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { TrustBadge } from '@/components/ui/TrustBadge';
+import { VerifiedBadge } from '@/components/ui/VerifiedBadge';
 import { LoadingState } from '@/components/ui/LoadingState';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useAuth } from '@/contexts/AuthContext';
@@ -48,7 +49,10 @@ export default function ProfessionalDetailScreen() {
     <Screen scroll>
       <View style={styles.header}>
         <Avatar name={pro.name} uri={pro.avatar_url} size={80} />
-        <Text style={styles.name}>{pro.name}</Text>
+        <View style={styles.nameRow}>
+          <Text style={styles.name}>{pro.name}</Text>
+          {pro.is_verified ? <VerifiedBadge /> : null}
+        </View>
         <Text style={styles.meta}>{pro.category}</Text>
         {pro.location ? <Text style={styles.meta}>{pro.location}</Text> : null}
         <TrustBadge label={label} />
@@ -56,7 +60,7 @@ export default function ProfessionalDetailScreen() {
       {pro.bio ? <Text style={styles.bio}>{pro.bio}</Text> : null}
       <View style={styles.card}>
         <Text style={styles.label}>Credentials</Text>
-        <Text style={styles.body}>Verification status: {pro.verification_status === 'verified' ? 'Verified' : 'Not independently verified'}</Text>
+        <Text style={styles.body}>{pro.is_verified ? 'Verified by LifeCircle.' : 'Not independently verified.'}</Text>
       </View>
       <View style={styles.card}>
         <Text style={styles.label}>Contact</Text>
@@ -87,6 +91,7 @@ export default function ProfessionalDetailScreen() {
 }
 const styles = StyleSheet.create({
   header: { alignItems: 'center', gap: 6, marginBottom: spacing.md },
+  nameRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap', gap: spacing.sm },
   name: { ...typography.h2, color: colors.text.primary },
   meta: { ...typography.caption, color: colors.text.secondary },
   bio: { ...typography.body, color: colors.text.secondary, marginBottom: spacing.md },
