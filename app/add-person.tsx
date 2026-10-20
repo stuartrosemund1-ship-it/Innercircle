@@ -23,7 +23,8 @@ export default function AddPersonScreen() {
       <Text style={styles.title}>Add a person</Text>
       <TextField label="Their email" autoCapitalize="none" keyboardType="email-address" value={email} onChangeText={setEmail} />
       <Button title="Send connection request" onPress={async () => {
-        const match = candidates.find((p) => p.email === email.trim().toLowerCase());
+        const normalized = email.trim().toLowerCase();
+        const match = candidates.find((p) => p.email === normalized) ?? await api.findProfileByEmail(normalized);
         if (!match) { Alert.alert('No account found', 'Invite them with a shareable link instead.'); return; }
         try { await api.requestConnection(user.id, match.id); Alert.alert('Request sent'); router.back(); }
         catch (e) { Alert.alert('Could not connect', e instanceof Error ? e.message : 'Try again'); }

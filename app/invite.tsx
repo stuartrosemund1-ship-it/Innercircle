@@ -24,7 +24,7 @@ export default function InviteScreen() {
           const invitation = await api.createInvitation(user.id, email || null);
           const plain = invitation.invite_token_plain ?? invitation.id;
           setToken(plain);
-          const link = `lifecircle://invite/${plain}`;
+          const link = `lifecircle://join/${plain}`;
           await Clipboard.setStringAsync(link);
           await Share.share({ message: `Join my LifeCircle: ${link}` });
         } catch (e) { Alert.alert('Could not create invite', e instanceof Error ? e.message : 'Try again'); }
