@@ -2,6 +2,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, Line } from 'react-native-svg';
 import { colors, typography } from '@/constants/theme';
 import { Avatar } from '@/components/ui/Avatar';
+import { VerifiedBadge } from '@/components/ui/VerifiedBadge';
 import type { Profile, Professional } from '@/types';
 
 export function CircleGraph({ me, people, professionals, mode, onSelectPerson, onSelectProfessional }: {
@@ -10,8 +11,8 @@ export function CircleGraph({ me, people, professionals, mode, onSelectPerson, o
 }) {
   const size = 320, cx = size / 2, cy = size / 2, radius = 118;
   const nodes = mode === 'professionals'
-    ? professionals.map((p) => ({ id: p.id, name: p.name, kind: 'professional' as const, uri: p.avatar_url }))
-    : people.map((p) => ({ id: p.id, name: p.full_name, kind: 'person' as const, uri: p.avatar_url }));
+    ? professionals.map((p) => ({ id: p.id, name: p.name, kind: 'professional' as const, uri: p.avatar_url, verified: p.is_verified }))
+    : people.map((p) => ({ id: p.id, name: p.full_name, kind: 'person' as const, uri: p.avatar_url, verified: false }));
   return (
     <View style={styles.wrap} accessibilityLabel="My Circle visualization">
       <Svg width={size} height={size} style={StyleSheet.absoluteFill}>
@@ -29,9 +30,10 @@ export function CircleGraph({ me, people, professionals, mode, onSelectPerson, o
       {nodes.map((node, i) => {
         const angle = (Math.PI * 2 * i) / Math.max(nodes.length, 1) - Math.PI / 2;
         return (
-          <Pressable key={node.id} onPress={() => node.kind === 'person' ? onSelectPerson(node.id) : onSelectProfessional(node.id)} style={[styles.node, { left: cx + radius * Math.cos(angle) - 28, top: cy + radius * Math.sin(angle) - 28 }]} accessibilityRole="button" accessibilityLabel={node.name}>
+          <Pressable key={node.id} onPress={() => node.kind === 'person' ? onSelectPerson(node.id) : onSelectProfessional(node.id)} style={[styles.node, { left: cx + radius * Math.cos(angle) - 44, top: cy + radius * Math.sin(angle) - 28 }]} accessibilityRole="button" accessibilityLabel={node.verified ? `${node.name}, verified` : node.name}>
             <Avatar name={node.name} uri={node.uri} size={56} />
             <Text style={styles.nodeLabel} numberOfLines={1}>{node.name.split(' ')[0]}</Text>
+            {node.verified ? <VerifiedBadge /> : null}
           </Pressable>
         );
       })}
@@ -45,7 +47,7 @@ export function CircleGraph({ me, people, professionals, mode, onSelectPerson, o
 }
 const styles = StyleSheet.create({
   wrap: { width: 320, height: 320, alignSelf: 'center', marginVertical: 8 },
-  node: { position: 'absolute', width: 56, alignItems: 'center' },
+  node: { position: 'absolute', width: 88, alignItems: 'center', gap: 2 },
   meLabel: { ...typography.caption, color: colors.brand.purpleDeep, marginTop: 4, fontFamily: 'PlusJakartaSans_600SemiBold' },
   nodeLabel: { ...typography.caption, color: colors.text.secondary, marginTop: 4, maxWidth: 72, textAlign: 'center' },
   emptyOverlay: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 48 },

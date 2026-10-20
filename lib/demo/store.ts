@@ -187,14 +187,14 @@ export const demoApi = {
     await save(state);
     return conn;
   },
-  async createProfessional(userId: string, data: Omit<Professional, 'id' | 'created_at' | 'created_by' | 'verification_status' | 'owner_user_id'> & { owner_user_id?: string | null }) {
+  async createProfessional(userId: string, data: Omit<Professional, 'id' | 'created_at' | 'created_by' | 'verification_status' | 'is_verified' | 'verified_at' | 'owner_user_id'> & { owner_user_id?: string | null }) {
     const state = await loadDemoState();
     const professional: Professional = {
       id: createId('pro'), owner_user_id: data.owner_user_id ?? null, created_by: userId,
       name: data.name, category: data.category, bio: data.bio ?? null, location: data.location ?? null,
       website: data.website ?? null, contact_email: data.contact_email ?? null, contact_phone: data.contact_phone ?? null,
       experience: data.experience ?? null, availability: data.availability ?? null, avatar_url: data.avatar_url ?? null,
-      verification_status: 'unverified', created_at: nowIso(),
+      verification_status: 'unverified', is_verified: false, verified_at: null, created_at: nowIso(),
     };
     state.professionals.push(professional);
     await save(state);
@@ -409,8 +409,8 @@ export const demoApi = {
       { id: createId('conn'), requester_id: currentUserId, recipient_id: sarah.id, status: 'accepted', created_at: nowIso(), updated_at: nowIso() },
       { id: createId('conn'), requester_id: james.id, recipient_id: currentUserId, status: 'accepted', created_at: nowIso(), updated_at: nowIso() },
     );
-    const alex: Professional = { id: createId('pro'), owner_user_id: null, created_by: sarah.id, name: 'Alex Rivera', category: 'Personal Training and Fitness', bio: 'Strength coach focused on sustainable training.', location: 'Austin', website: null, contact_email: null, contact_phone: null, experience: 'Self-reported: 8 years coaching', availability: 'Weekday mornings', avatar_url: null, verification_status: 'unverified', created_at: nowIso() };
-    const morgan: Professional = { id: createId('pro'), owner_user_id: null, created_by: james.id, name: 'Morgan Ellis', category: 'Electricians and Plumbers', bio: 'Residential electrician.', location: 'Austin', website: null, contact_email: null, contact_phone: null, experience: null, availability: null, avatar_url: null, verification_status: 'unverified', created_at: nowIso() };
+    const alex: Professional = { id: createId('pro'), owner_user_id: null, created_by: sarah.id, name: 'Alex Rivera', category: 'Personal Training and Fitness', bio: 'Strength coach focused on sustainable training.', location: 'Austin', website: null, contact_email: null, contact_phone: null, experience: 'Self-reported: 8 years coaching', availability: 'Weekday mornings', avatar_url: null, verification_status: 'unverified', is_verified: true, verified_at: nowIso(), created_at: nowIso() };
+    const morgan: Professional = { id: createId('pro'), owner_user_id: null, created_by: james.id, name: 'Morgan Ellis', category: 'Electricians and Plumbers', bio: 'Residential electrician.', location: 'Austin', website: null, contact_email: null, contact_phone: null, experience: null, availability: null, avatar_url: null, verification_status: 'unverified', is_verified: false, verified_at: null, created_at: nowIso() };
     state.professionals.push(alex, morgan);
     state.recommendations.push(
       { id: createId('rec'), recommender_id: sarah.id, professional_id: alex.id, note: 'Helped me rebuild a consistent routine.', visibility: 'connections', status: 'active', created_at: nowIso() },

@@ -7,6 +7,7 @@ import { ErrorState } from '@/components/ui/ErrorState';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Avatar } from '@/components/ui/Avatar';
 import { TrustBadge } from '@/components/ui/TrustBadge';
+import { VerifiedBadge } from '@/components/ui/VerifiedBadge';
 import { CircleGraph } from '@/components/circle/CircleGraph';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCircleData } from '@/hooks/useCircleData';
@@ -78,14 +79,21 @@ export default function CircleScreen() {
           : sharedPros.map((p) => (
             <Pressable key={p.id} style={styles.row} onPress={() => router.push(`/professional/${p.id}`)}>
               <Avatar name={p.name} uri={p.avatar_url} />
-              <View style={{ flex: 1, gap: 4 }}><Text style={styles.rowTitle}>{p.name}</Text><TrustBadge label={trustLabelFor(p.id)} /></View>
+              <View style={{ flex: 1, gap: 4 }}>
+                <View style={styles.titleLine}><Text style={styles.rowTitle}>{p.name}</Text>{p.is_verified ? <VerifiedBadge /> : null}</View>
+                <TrustBadge label={trustLabelFor(p.id)} />
+              </View>
             </Pressable>
           ))
         ) : data.professionals.length === 0 ? <EmptyState title="No professionals in view" description="Add a professional you personally use, or wait for recommendations from your circle." actionLabel="Add a Professional" onAction={() => router.push('/add-professional')} />
           : data.professionals.map((p) => (
             <Pressable key={p.id} style={styles.row} onPress={() => router.push(`/professional/${p.id}`)}>
               <Avatar name={p.name} uri={p.avatar_url} />
-              <View style={{ flex: 1, gap: 4 }}><Text style={styles.rowTitle}>{p.name}</Text><Text style={styles.rowSub}>{p.category}</Text><TrustBadge label={trustLabelFor(p.id)} /></View>
+              <View style={{ flex: 1, gap: 4 }}>
+                <View style={styles.titleLine}><Text style={styles.rowTitle}>{p.name}</Text>{p.is_verified ? <VerifiedBadge /> : null}</View>
+                <Text style={styles.rowSub}>{p.category}</Text>
+                <TrustBadge label={trustLabelFor(p.id)} />
+              </View>
             </Pressable>
           ))
       )}
@@ -105,6 +113,7 @@ const styles = StyleSheet.create({
   viewBtnActive: { backgroundColor: colors.brand.purpleSoft },
   viewText: { ...typography.label, color: colors.text.secondary },
   row: { flexDirection: 'row', gap: spacing.md, alignItems: 'center', backgroundColor: colors.surface.card, borderRadius: radii.md, padding: spacing.md, marginBottom: spacing.sm, borderWidth: 1, borderColor: colors.surface.border },
+  titleLine: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.sm },
   rowTitle: { ...typography.bodyMedium, color: colors.text.primary },
   rowSub: { ...typography.caption, color: colors.text.secondary },
 });

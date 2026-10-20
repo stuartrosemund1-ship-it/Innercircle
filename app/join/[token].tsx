@@ -15,13 +15,11 @@ export default function JoinScreen() {
   const { user } = useAuth();
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
-  const [working, setWorking] = useState(false);
   if (inviteToken && !user) setPendingInvite(inviteToken);
 
   useEffect(() => {
     if (!user || !inviteToken) return;
     let cancelled = false;
-    setWorking(true);
     (async () => {
       try {
         await api.acceptInvitation(inviteToken, user.id);
@@ -29,8 +27,6 @@ export default function JoinScreen() {
         if (!cancelled) router.replace('/(tabs)');
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : 'This invite could not be accepted.');
-      } finally {
-        if (!cancelled) setWorking(false);
       }
     })();
     return () => { cancelled = true; };
@@ -49,7 +45,7 @@ export default function JoinScreen() {
       </Screen>
     );
   }
-  if (working && !error) return <LoadingState label="Accepting invite…" />;
+  if (!error) return <LoadingState label="Accepting invite…" />;
   return (
     <Screen>
       <Text style={styles.title}>Invite</Text>
