@@ -4,6 +4,8 @@ Expo app for a private trust network. People connect, recommend professionals, a
 
 Without Supabase credentials the app runs in a labelled on-device demo. Sample data, including a verified professional (Alex Rivera), stays on the device.
 
+The public demo (no Supabase keys) is at https://stuartrosemund1-ship-it.github.io/Innercircle/. It is built from `main` by `.github/workflows/pages.yml`.
+
 ## Supabase
 
 The hosted project is `zfgrlqheihcvmjfkpjet`.

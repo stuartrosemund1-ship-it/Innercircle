@@ -1,0 +1,32 @@
+{
+  "name": "LifeCircle",
+  "short_name": "LifeCircle",
+  "description": "Your Circle. Better Life.",
+  "id": "/Innercircle/",
+  "start_url": "/Innercircle/",
+  "scope": "/Innercircle/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F7F8FC",
+  "theme_color": "#5B4BDF",
+  "icons": [
+    {
+      "src": "/Innercircle/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/Innercircle/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/Innercircle/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
