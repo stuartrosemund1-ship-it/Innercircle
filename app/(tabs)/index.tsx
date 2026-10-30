@@ -8,6 +8,7 @@ import { Avatar } from '@/components/ui/Avatar';
 import { VerifiedBadge } from '@/components/ui/VerifiedBadge';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCircleData } from '@/hooks/useCircleData';
+import { isApprovedProfessional, isVerifiedProfessional } from '@/lib/application';
 import { colors, radii, shadows, spacing, typography } from '@/constants/theme';
 
 function firstName(full: string) { return full.split(' ')[0] || full; }
@@ -23,7 +24,7 @@ export default function HomeScreen() {
   const recCards = data.recommendations.filter((r) => r.recommender_id !== user.id).slice(0, 5).map((r) => {
     const recommender = data.people.find((p) => p.id === r.recommender_id);
     const pro = data.professionals.find((p) => p.id === r.professional_id);
-    if (!recommender || !pro) return null;
+    if (!recommender || !pro || !isApprovedProfessional(pro)) return null;
     return { r, recommender, pro };
   }).filter(Boolean) as { r: (typeof data.recommendations)[0]; recommender: (typeof data.people)[0]; pro: (typeof data.professionals)[0] }[];
 
@@ -40,7 +41,7 @@ export default function HomeScreen() {
       </View>
       <Text style={styles.section}>Quick actions</Text>
       <Button title="Add a Person" variant="secondary" onPress={() => router.push('/add-person')} />
-      <Button title="Add a Professional" onPress={() => router.push('/add-professional')} style={styles.actionGap} />
+      <Button title="Apply as a professional" onPress={() => router.push('/add-professional')} style={styles.actionGap} />
       <Button title="Invite a Friend" variant="teal" onPress={() => router.push('/invite')} style={styles.actionGap} />
       <Button title="Explore Trusted Professionals" variant="ghost" onPress={() => router.push('/(tabs)/discover')} style={styles.actionGap} />
       <Text style={styles.section}>Recently shared recommendations</Text>
@@ -53,7 +54,7 @@ export default function HomeScreen() {
             <View style={{ flex: 1 }}>
               <View style={styles.titleLine}>
                 <Text style={styles.cardTitle}>{recommender.full_name} has shared {pro.name} with you</Text>
-                {pro.is_verified ? <VerifiedBadge /> : null}
+                {isVerifiedProfessional(pro) ? <VerifiedBadge /> : null}
               </View>
               <Text style={styles.cardBody}>{pro.category}</Text>
             </View>
@@ -67,7 +68,7 @@ export default function HomeScreen() {
         <Pressable key={`sug-${pro.id}-${recommender.id}`} style={styles.card} onPress={() => router.push({ pathname: '/request-intro', params: { professionalId: pro.id, intermediaryId: recommender.id } })}>
           <View style={styles.titleLine}>
             <Text style={styles.cardTitle}>Your friend {firstName(recommender.full_name)} can introduce you to {pro.name}</Text>
-            {pro.is_verified ? <VerifiedBadge /> : null}
+            {isVerifiedProfessional(pro) ? <VerifiedBadge /> : null}
           </View>
           <Text style={styles.cardBody}>Request an introduction — trust is never transferred automatically.</Text>
         </Pressable>

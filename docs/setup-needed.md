@@ -16,9 +16,9 @@ To do it by hand, copy the Project URL and the publishable (anon) key from Proje
 
 ## 2. Apply the schema
 
-The hosted project is `zfgrlqheihcvmjfkpjet` (`https://zfgrlqheihcvmjfkpjet.supabase.co`). `001_lifecircle_schema.sql` is already applied there. Apply `supabase/migrations/002_professional_verified.sql` in the SQL editor as well. It adds `is_verified` and `verified_at`. Only `service_role`, `postgres`, or `supabase_admin` can change those columns.
+The hosted project is `zfgrlqheihcvmjfkpjet` (`https://zfgrlqheihcvmjfkpjet.supabase.co`). `001_lifecircle_schema.sql` is already applied there. Apply `002_professional_verified.sql` and `003_professional_application.sql` in the SQL editor when you are ready. Do not expect 003 to already be on the hosted database. Only `service_role`, `postgres`, or `supabase_admin` can approve an application or set `is_verified`.
 
-For a new project, run both files in order in the Supabase SQL editor.
+For a new project, run the three files in order in the Supabase SQL editor.
 
 Or, with the CLI and Docker:
 

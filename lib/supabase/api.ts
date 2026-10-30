@@ -1,20 +1,24 @@
 import * as Linking from 'expo-linking';
 import { supabase, requireSupabase } from '@/lib/supabase/client';
 import { clearPasswordRecovery } from '@/lib/supabase/linking';
+import { applicationIssues, assertPriceOrder, isApprovedProfessional } from '@/lib/application';
 import {
   DEFAULT_PRIVACY, type AppNotification, type Connection, type Conversation, type ConversationMember,
   type IntroductionRequest, type Invitation, type Message, type NotificationType, type PersonalTrust,
-  type PrivacySettings, type Professional, type ProfessionalRecommendation, type Profile,
+  type PriceCurrency, type PricingUnit, type PrivacySettings, type Professional, type ProfessionalApplicationInput,
+  type ProfessionalRecommendation, type ProfessionalReference, type Profile,
 } from '@/types';
 
 const PROFILE_COLUMNS = 'id, email, full_name, avatar_url, bio, city, interests, privacy, onboarding_completed, created_at';
-const PROFESSIONAL_COLUMNS = 'id, owner_user_id, created_by, name, category, bio, location, experience, availability, avatar_url, verification_status, is_verified, verified_at, created_at';
+const PROFESSIONAL_COLUMNS = 'id, owner_user_id, created_by, name, category, bio, location, experience, availability, avatar_url, years_experience, licence_number, licence_issuer, service_area, photo_id_path, insurance_doc_path, qualification_doc_path, conduct_accepted_at, application_status, application_rejection_reason, application_submitted_at, application_reviewed_at, price_min, price_max, currency, pricing_unit, pricing_notes, verification_status, is_verified, verified_at, created_at';
+const REFERENCE_COLUMNS = 'id, professional_id, applicant_id, referee_id, status, note, created_at, responded_at';
 const CONTACT_COLUMNS = 'professional_id, contact_email, contact_phone, website';
 
 export interface AppSnapshot {
   profiles: Profile[];
   connections: Connection[];
   professionals: Professional[];
+  references: ProfessionalReference[];
   recommendations: ProfessionalRecommendation[];
   personalTrusts: PersonalTrust[];
   introductions: IntroductionRequest[];
@@ -81,11 +85,34 @@ function mapProfile(row: Profile): Profile {
 
 type ContactRow = { professional_id: string; contact_email: string | null; contact_phone: string | null; website: string | null };
 
-function mapProfessional(row: Omit<Professional, 'website' | 'contact_email' | 'contact_phone'>, contact?: ContactRow | null): Professional {
+function asNumber(value: number | string | null | undefined): number | null {
+  if (value == null || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function mapProfessional(row: Omit<Professional, 'website' | 'contact_email' | 'contact_phone'> & { price_min?: number | string | null; price_max?: number | string | null; years_experience?: number | string | null }, contact?: ContactRow | null): Professional {
   return {
     ...row,
     owner_user_id: row.owner_user_id ?? null,
     created_by: row.created_by ?? '',
+    years_experience: asNumber(row.years_experience),
+    licence_number: row.licence_number ?? null,
+    licence_issuer: row.licence_issuer ?? null,
+    service_area: row.service_area ?? null,
+    photo_id_path: row.photo_id_path ?? null,
+    insurance_doc_path: row.insurance_doc_path ?? null,
+    qualification_doc_path: row.qualification_doc_path ?? null,
+    conduct_accepted_at: row.conduct_accepted_at ?? null,
+    application_status: row.application_status ?? 'draft',
+    application_rejection_reason: row.application_rejection_reason ?? null,
+    application_submitted_at: row.application_submitted_at ?? null,
+    application_reviewed_at: row.application_reviewed_at ?? null,
+    price_min: asNumber(row.price_min),
+    price_max: asNumber(row.price_max),
+    currency: (row.currency ?? 'GBP') as PriceCurrency,
+    pricing_unit: (row.pricing_unit ?? null) as PricingUnit | null,
+    pricing_notes: row.pricing_notes ?? null,
     is_verified: Boolean(row.is_verified),
     verified_at: row.verified_at ?? null,
     bio: row.bio ?? null,
@@ -134,12 +161,13 @@ async function getProfile(userId: string): Promise<Profile | null> {
 
 async function loadSnapshot(): Promise<AppSnapshot> {
   const [
-    profiles, connections, professionals, recommendations, personalTrusts, introductions,
+    profiles, connections, professionals, references, recommendations, personalTrusts, introductions,
     conversations, conversationMembers, messages, invitations, notifications,
   ] = await Promise.all([
     db().from('profiles').select(PROFILE_COLUMNS),
     db().from('connections').select('id, requester_id, recipient_id, status, created_at, updated_at'),
     loadProfessionals().then((rows) => ({ data: rows, error: null })),
+    db().from('professional_references').select(REFERENCE_COLUMNS),
     db().from('recommendations').select('id, recommender_id, professional_id, note, visibility, status, created_at'),
     db().from('personal_trusts').select('id, user_id, professional_id, source_introduction_id, created_at'),
     db().from('introductions').select('id, requester_id, intermediary_id, professional_id, message, status, created_at, responded_at'),
@@ -149,13 +177,14 @@ async function loadSnapshot(): Promise<AppSnapshot> {
     db().from('invitations').select('id, inviter_id, recipient_email, status, expires_at, created_at'),
     db().from('notifications').select('id, recipient_id, type, title, body, reference_id, read_at, created_at').order('created_at', { ascending: false }),
   ]);
-  for (const result of [profiles, connections, recommendations, personalTrusts, introductions, conversations, conversationMembers, messages, invitations, notifications]) {
+  for (const result of [profiles, connections, references, recommendations, personalTrusts, introductions, conversations, conversationMembers, messages, invitations, notifications]) {
     fail(result.error);
   }
   return {
     profiles: ((profiles.data ?? []) as Profile[]).map(mapProfile),
     connections: (connections.data ?? []) as Connection[],
     professionals: professionals.data,
+    references: (references.data ?? []) as ProfessionalReference[],
     recommendations: (recommendations.data ?? []) as ProfessionalRecommendation[],
     personalTrusts: (personalTrusts.data ?? []) as PersonalTrust[],
     introductions: (introductions.data ?? []) as IntroductionRequest[],
@@ -332,38 +361,107 @@ export const supabaseApi = {
     emit();
     return data as Connection;
   },
-  async createProfessional(userId: string, data: Omit<Professional, 'id' | 'created_at' | 'created_by' | 'verification_status' | 'is_verified' | 'verified_at' | 'owner_user_id'> & { owner_user_id?: string | null }) {
+  async submitProfessionalApplication(userId: string, input: ProfessionalApplicationInput) {
     await assertSelf(userId);
+    assertPriceOrder(input.price_min, input.price_max);
+    const refereeIds = [...new Set(input.referee_ids)];
+    if (input.submit) {
+      const issues = applicationIssues({ ...input, referee_ids: refereeIds });
+      if (issues.length) throw new Error(issues[0]);
+    }
+    if (refereeIds.length > 2) throw new Error('Choose at most 2 references.');
+    if (refereeIds.includes(userId)) throw new Error('You cannot vouch for your own application.');
+    const conductAt = input.conduct_accepted ? new Date().toISOString() : null;
     const { data: row, error } = await db().from('professionals').insert({
-      owner_user_id: data.owner_user_id ?? null,
+      owner_user_id: userId,
       created_by: userId,
-      name: data.name,
-      category: data.category,
-      bio: data.bio ?? null,
-      location: data.location ?? null,
-      experience: data.experience ?? null,
-      availability: data.availability ?? null,
-      avatar_url: data.avatar_url ?? null,
+      name: input.name.trim(),
+      category: input.category,
+      bio: input.bio,
+      location: input.location,
+      experience: input.experience,
+      availability: input.availability,
+      avatar_url: input.avatar_url,
+      years_experience: input.years_experience,
+      licence_number: input.licence_number?.trim() || null,
+      licence_issuer: input.licence_issuer?.trim() || null,
+      service_area: input.service_area?.trim() || null,
+      photo_id_path: input.photo_id_path,
+      insurance_doc_path: input.insurance_doc_path,
+      qualification_doc_path: input.qualification_doc_path,
+      conduct_accepted_at: conductAt,
+      application_status: 'draft',
+      price_min: input.price_min,
+      price_max: input.price_max,
+      currency: input.currency,
+      pricing_unit: input.pricing_unit,
+      pricing_notes: input.pricing_notes?.trim() || null,
       verification_status: 'unverified',
     }).select(PROFESSIONAL_COLUMNS).single();
     fail(error);
-    if (!row) throw new Error('Could not save professional');
-    let contact: ContactRow | null = null;
-    if (data.contact_email || data.contact_phone || data.website) {
+    if (!row) throw new Error('Could not save application');
+    if (input.contact_email || input.contact_phone || input.website) {
       const inserted = await db().from('professional_contacts').insert({
         professional_id: row.id,
-        contact_email: data.contact_email ?? null,
-        contact_phone: data.contact_phone ?? null,
-        website: data.website ?? null,
-      }).select(CONTACT_COLUMNS).single();
+        contact_email: input.contact_email,
+        contact_phone: input.contact_phone,
+        website: input.website,
+      });
       fail(inserted.error);
-      contact = inserted.data as ContactRow;
+    }
+    const applicantName = await profileName(userId);
+    for (const refereeId of refereeIds) {
+      const { data: reference, error: referenceError } = await db().from('professional_references').insert({
+        professional_id: row.id,
+        applicant_id: userId,
+        referee_id: refereeId,
+        status: 'requested',
+      }).select(REFERENCE_COLUMNS).single();
+      fail(referenceError);
+      if (reference) {
+        await notify(refereeId, 'reference_request', 'Reference requested', `${applicantName} asked you to vouch for ${input.name.trim()}.`, reference.id);
+      }
+    }
+    let saved = row;
+    if (input.submit) {
+      const updated = await db().from('professionals').update({ application_status: 'pending' }).eq('id', row.id).select(PROFESSIONAL_COLUMNS).single();
+      fail(updated.error);
+      if (!updated.data) throw new Error('Could not submit application');
+      saved = updated.data;
     }
     emit();
-    return mapProfessional(row as Omit<Professional, 'website' | 'contact_email' | 'contact_phone'>, contact);
+    const contacts = await db().from('professional_contacts').select(CONTACT_COLUMNS).eq('professional_id', saved.id).maybeSingle();
+    fail(contacts.error);
+    return mapProfessional(saved as Omit<Professional, 'website' | 'contact_email' | 'contact_phone'>, contacts.data as ContactRow | null);
+  },
+  async finalizeProfessionalApplication(userId: string, professionalId: string) {
+    await assertSelf(userId);
+    const { data, error } = await db().from('professionals').update({ application_status: 'pending' }).eq('id', professionalId).select(PROFESSIONAL_COLUMNS).single();
+    fail(error);
+    if (!data) throw new Error('Could not submit application');
+    emit();
+    const contacts = await db().from('professional_contacts').select(CONTACT_COLUMNS).eq('professional_id', professionalId).maybeSingle();
+    fail(contacts.error);
+    return mapProfessional(data as Omit<Professional, 'website' | 'contact_email' | 'contact_phone'>, contacts.data as ContactRow | null);
+  },
+  async respondProfessionalReference(referenceId: string, userId: string, confirm: boolean) {
+    await assertSelf(userId);
+    const { data, error } = await db().from('professional_references').update({
+      status: confirm ? 'confirmed' : 'declined',
+    }).eq('id', referenceId).select(REFERENCE_COLUMNS).single();
+    fail(error);
+    const reference = data as ProfessionalReference;
+    const name = await profileName(userId);
+    const professional = await db().from('professionals').select('name').eq('id', reference.professional_id).maybeSingle();
+    await notify(reference.applicant_id, 'reference_request', confirm ? 'Reference confirmed' : 'Reference declined', `${name} ${confirm ? 'vouched for' : 'declined to vouch for'} ${professional.data?.name ?? 'your application'}.`, reference.id);
+    emit();
+    return reference;
   },
   async recommendProfessional(recommenderId: string, professionalId: string, note: string | null, visibility: ProfessionalRecommendation['visibility']) {
     await assertSelf(recommenderId);
+    const existing = await db().from('professionals').select('application_status').eq('id', professionalId).maybeSingle();
+    fail(existing.error);
+    if (!existing.data || !isApprovedProfessional(existing.data as Professional)) throw new Error('Only approved professionals can be recommended.');
     const { data, error } = await db().from('recommendations').insert({
       recommender_id: recommenderId,
       professional_id: professionalId,
@@ -421,6 +519,9 @@ export const supabaseApi = {
   },
   async requestIntroduction(requesterId: string, intermediaryId: string, professionalId: string, message: string | null) {
     await assertSelf(requesterId);
+    const existing = await db().from('professionals').select('application_status').eq('id', professionalId).maybeSingle();
+    fail(existing.error);
+    if (!existing.data || !isApprovedProfessional(existing.data as Professional)) throw new Error('Introductions are available once a professional is approved.');
     const { data, error } = await db().from('introductions').insert({
       requester_id: requesterId,
       intermediary_id: intermediaryId,
@@ -533,12 +634,14 @@ export const supabaseApi = {
       return profile.full_name.toLowerCase().includes(q) || (profile.city ?? '').toLowerCase().includes(q);
     });
     const networkProfessionals = state.professionals.filter((professional) => {
+      if (!isApprovedProfessional(professional)) return false;
       if (!recommendedProIds.has(professional.id) && !state.personalTrusts.some((trust) => trust.user_id === userId && trust.professional_id === professional.id)) return false;
       if (category && professional.category !== category) return false;
       if (!q) return true;
       return professional.name.toLowerCase().includes(q) || professional.category.toLowerCase().includes(q) || (professional.location ?? '').toLowerCase().includes(q);
     });
     const generalProfessionals = state.professionals.filter((professional) => {
+      if (!isApprovedProfessional(professional)) return false;
       if (recommendedProIds.has(professional.id)) return false;
       if (state.personalTrusts.some((trust) => trust.user_id === userId && trust.professional_id === professional.id)) return false;
       if (professional.created_by !== userId) return false;

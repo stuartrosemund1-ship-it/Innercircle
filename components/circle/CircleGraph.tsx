@@ -11,7 +11,7 @@ export function CircleGraph({ me, people, professionals, mode, onSelectPerson, o
 }) {
   const size = 320, cx = size / 2, cy = size / 2, radius = 118;
   const nodes = mode === 'professionals'
-    ? professionals.map((p) => ({ id: p.id, name: p.name, kind: 'professional' as const, uri: p.avatar_url, verified: p.is_verified }))
+    ? professionals.map((p) => ({ id: p.id, name: p.name, kind: 'professional' as const, uri: p.avatar_url, verified: p.application_status === 'approved' && p.is_verified }))
     : people.map((p) => ({ id: p.id, name: p.full_name, kind: 'person' as const, uri: p.avatar_url, verified: false }));
   return (
     <View style={styles.wrap} accessibilityLabel="My Circle visualization">

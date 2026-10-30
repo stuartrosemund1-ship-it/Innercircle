@@ -27,17 +27,24 @@ Do not put the service role or secret key in the app or in git. That key bypasse
 
 ### Database
 
-`001_lifecircle_schema.sql` is already applied on the hosted project. Apply `supabase/migrations/002_professional_verified.sql` in the SQL editor before using the verified badge against Supabase. It adds `professionals.is_verified` and `professionals.verified_at`.
+`001_lifecircle_schema.sql` is already applied on the hosted project. Apply `supabase/migrations/002_professional_verified.sql` and then `supabase/migrations/003_professional_application.sql` in the SQL editor before using applications or the verified badge against Supabase. Migration 003 is committed only. It has not been applied to the hosted database.
+
+003 adds the application (`draft`, `pending`, `approved`, `rejected`), licence and document paths, reference requests, and a required price range (`price_min`, `price_max`, `currency`, `pricing_unit`). Applicants can submit a draft as pending. They cannot approve or reject themselves, and they cannot set `is_verified`. Only `service_role`, `postgres`, or `supabase_admin` can do that. Approval also requires a price range and confirmed references, and a verified badge is cleared unless the application is approved.
 
 Authenticated users can read those columns. They cannot set them: column privileges omit them from insert and update, and a trigger restores the previous values unless the session is `service_role`, `postgres`, or `supabase_admin`. To mark someone verified, run this with the SQL editor or the service role:
 
 ```sql
 update public.professionals
-set is_verified = true
+set application_status = 'approved'
 where name = 'Example Name';
+
+update public.professionals
+set is_verified = true
+where name = 'Example Name'
+  and application_status = 'approved';
 ```
 
-`verified_at` is filled in when `is_verified` becomes true.
+`verified_at` is filled in when `is_verified` becomes true. Reject an application with `application_status = 'rejected'` and `application_rejection_reason`.
 
 Auth redirects to allow: `lifecircle://reset-password` and `lifecircle://**`. Invite links look like `lifecircle://join/<token>`.
 

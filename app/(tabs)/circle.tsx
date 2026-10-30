@@ -11,6 +11,8 @@ import { VerifiedBadge } from '@/components/ui/VerifiedBadge';
 import { CircleGraph } from '@/components/circle/CircleGraph';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCircleData } from '@/hooks/useCircleData';
+import { applicationStatusLabel, isApprovedProfessional, isVerifiedProfessional } from '@/lib/application';
+import { PriceRange } from '@/components/ui/PriceRange';
 import { colors, radii, spacing, typography } from '@/constants/theme';
 import type { TrustLabel } from '@/types';
 
@@ -33,7 +35,7 @@ export default function CircleScreen() {
       set.add(r.recommender_id);
       counts.set(r.professional_id, set);
     }
-    return data.professionals.filter((p) => (counts.get(p.id)?.size ?? 0) >= 2);
+    return data.professionals.filter((p) => isApprovedProfessional(p) && (counts.get(p.id)?.size ?? 0) >= 2);
   }, [data.recommendations, data.professionals, data.people, user]);
   if (!user) return null;
   if (data.loading) return <LoadingState />;
@@ -43,10 +45,11 @@ export default function CircleScreen() {
     if (data.introductions.some((i) => i.professional_id === professionalId && i.requester_id === user!.id && i.status === 'accepted')) return 'introduced';
     return 'recommended';
   }
-  const graphPros = mode === 'shared' ? sharedPros : data.professionals.filter((p) =>
+  const visiblePros = data.professionals.filter((p) => isApprovedProfessional(p) || p.created_by === user.id || p.owner_user_id === user.id);
+  const graphPros = mode === 'shared' ? sharedPros : visiblePros.filter((p) => isApprovedProfessional(p) && (
     data.personalTrusts.some((t) => t.professional_id === p.id) ||
     data.recommendations.some((r) => r.professional_id === p.id && r.recommender_id === user.id)
-  );
+  ));
   return (
     <Screen scroll onRefresh={data.refresh}>
       <Text style={styles.title}>My Circle</Text>
@@ -80,19 +83,21 @@ export default function CircleScreen() {
             <Pressable key={p.id} style={styles.row} onPress={() => router.push(`/professional/${p.id}`)}>
               <Avatar name={p.name} uri={p.avatar_url} />
               <View style={{ flex: 1, gap: 4 }}>
-                <View style={styles.titleLine}><Text style={styles.rowTitle}>{p.name}</Text>{p.is_verified ? <VerifiedBadge /> : null}</View>
+                <View style={styles.titleLine}><Text style={styles.rowTitle}>{p.name}</Text>{isVerifiedProfessional(p) ? <VerifiedBadge /> : null}</View>
+                <PriceRange professional={p} />
                 <TrustBadge label={trustLabelFor(p.id)} />
               </View>
             </Pressable>
           ))
-        ) : data.professionals.length === 0 ? <EmptyState title="No professionals in view" description="Add a professional you personally use, or wait for recommendations from your circle." actionLabel="Add a Professional" onAction={() => router.push('/add-professional')} />
-          : data.professionals.map((p) => (
+        ) : visiblePros.length === 0 ? <EmptyState title="No professionals in view" description="Apply as a professional, or wait for an approved recommendation from your circle." actionLabel="Apply as a professional" onAction={() => router.push('/add-professional')} />
+          : visiblePros.map((p) => (
             <Pressable key={p.id} style={styles.row} onPress={() => router.push(`/professional/${p.id}`)}>
               <Avatar name={p.name} uri={p.avatar_url} />
               <View style={{ flex: 1, gap: 4 }}>
-                <View style={styles.titleLine}><Text style={styles.rowTitle}>{p.name}</Text>{p.is_verified ? <VerifiedBadge /> : null}</View>
+                <View style={styles.titleLine}><Text style={styles.rowTitle}>{p.name}</Text>{isVerifiedProfessional(p) ? <VerifiedBadge /> : null}</View>
                 <Text style={styles.rowSub}>{p.category}</Text>
-                <TrustBadge label={trustLabelFor(p.id)} />
+                {isApprovedProfessional(p) ? <PriceRange professional={p} /> : <Text style={styles.rowSub}>{applicationStatusLabel(p.application_status)}</Text>}
+                {isApprovedProfessional(p) ? <TrustBadge label={trustLabelFor(p.id)} /> : null}
               </View>
             </Pressable>
           ))

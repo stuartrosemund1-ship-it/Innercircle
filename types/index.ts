@@ -6,7 +6,11 @@ export type InvitationStatus = 'pending' | 'accepted' | 'expired' | 'revoked';
 export type NotificationType =
   | 'connection_request' | 'connection_accepted' | 'recommendation_shared'
   | 'introduction_request' | 'introduction_accepted' | 'introduction_declined'
-  | 'message' | 'invitation_accepted';
+  | 'message' | 'invitation_accepted' | 'reference_request';
+export type ApplicationStatus = 'draft' | 'pending' | 'approved' | 'rejected';
+export type PricingUnit = 'per_hour' | 'per_session' | 'per_project' | 'fixed';
+export type ReferenceStatus = 'requested' | 'confirmed' | 'declined';
+export type PriceCurrency = 'GBP' | 'USD' | 'EUR';
 export type ProfessionalCategory =
   | 'Personal Training and Fitness' | 'Health and Wellbeing'
   | 'Accountants and Financial Advisers' | 'Lawyers' | 'Electricians and Plumbers'
@@ -34,8 +38,30 @@ export interface Professional {
   category: ProfessionalCategory; bio: string | null; location: string | null;
   website: string | null; contact_email: string | null; contact_phone: string | null;
   experience: string | null; availability: string | null; avatar_url: string | null;
+  years_experience: number | null; licence_number: string | null; licence_issuer: string | null;
+  service_area: string | null; photo_id_path: string | null; insurance_doc_path: string | null;
+  qualification_doc_path: string | null; conduct_accepted_at: string | null;
+  application_status: ApplicationStatus; application_rejection_reason: string | null;
+  application_submitted_at: string | null; application_reviewed_at: string | null;
+  price_min: number | null; price_max: number | null; currency: PriceCurrency;
+  pricing_unit: PricingUnit | null; pricing_notes: string | null;
   verification_status: 'unverified' | 'pending' | 'verified';
   is_verified: boolean; verified_at: string | null; created_at: string;
+}
+export interface ProfessionalReference {
+  id: string; professional_id: string; applicant_id: string; referee_id: string;
+  status: ReferenceStatus; note: string | null; created_at: string; responded_at: string | null;
+}
+export interface ProfessionalApplicationInput {
+  name: string; category: ProfessionalCategory; bio: string | null; location: string | null;
+  website: string | null; contact_email: string | null; contact_phone: string | null;
+  experience: string | null; availability: string | null; avatar_url: string | null;
+  years_experience: number | null; licence_number: string | null; licence_issuer: string | null;
+  service_area: string | null; photo_id_path: string | null; insurance_doc_path: string | null;
+  qualification_doc_path: string | null; conduct_accepted: boolean;
+  price_min: number | null; price_max: number | null; currency: PriceCurrency;
+  pricing_unit: PricingUnit | null; pricing_notes: string | null;
+  referee_ids: string[]; submit: boolean;
 }
 export interface ProfessionalRecommendation {
   id: string; recommender_id: string; professional_id: string; note: string | null;

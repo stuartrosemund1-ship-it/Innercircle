@@ -2,20 +2,22 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   AppNotification, Connection, Conversation, ConversationMember, DEFAULT_PRIVACY,
   IntroductionRequest, Invitation, Message, PersonalTrust, PrivacySettings,
-  Professional, ProfessionalRecommendation, Profile,
+  Professional, ProfessionalApplicationInput, ProfessionalRecommendation, ProfessionalReference, Profile,
 } from '@/types';
+import { applicationIssues, assertPriceOrder, isApprovedProfessional } from '@/lib/application';
 import { createId, hashToken, nowIso } from '@/lib/id';
 
-const STORAGE_KEY = 'lifecircle.demo.v1';
+const STORAGE_KEY = 'lifecircle.demo.v2';
 
 export interface DemoState {
-  version: 1;
+  version: 2;
   environment: 'development-demo';
   currentUserId: string | null;
   sessionPasswordByEmail: Record<string, string>;
   profiles: Profile[];
   connections: Connection[];
   professionals: Professional[];
+  references: ProfessionalReference[];
   recommendations: ProfessionalRecommendation[];
   personalTrusts: PersonalTrust[];
   introductions: IntroductionRequest[];
@@ -29,9 +31,9 @@ export interface DemoState {
 
 function emptyState(): DemoState {
   return {
-    version: 1, environment: 'development-demo', currentUserId: null,
+    version: 2, environment: 'development-demo', currentUserId: null,
     sessionPasswordByEmail: {}, profiles: [], connections: [], professionals: [],
-    recommendations: [], personalTrusts: [], introductions: [], conversations: [],
+    references: [], recommendations: [], personalTrusts: [], introductions: [], conversations: [],
     conversationMembers: [], messages: [], invitations: [], notifications: [],
     sampleDataLoaded: false,
   };
@@ -49,7 +51,14 @@ export async function loadDemoState(): Promise<DemoState> {
   if (memory) return memory;
   try {
     const raw = await AsyncStorage.getItem(STORAGE_KEY);
-    if (raw) { memory = JSON.parse(raw) as DemoState; return memory; }
+    if (raw) {
+      const parsed = JSON.parse(raw) as DemoState;
+      if (parsed.version === 2) {
+        parsed.references = parsed.references ?? [];
+        memory = parsed;
+        return memory;
+      }
+    }
   } catch {}
   memory = emptyState();
   return memory;
@@ -187,21 +196,103 @@ export const demoApi = {
     await save(state);
     return conn;
   },
-  async createProfessional(userId: string, data: Omit<Professional, 'id' | 'created_at' | 'created_by' | 'verification_status' | 'is_verified' | 'verified_at' | 'owner_user_id'> & { owner_user_id?: string | null }) {
+  async submitProfessionalApplication(userId: string, input: ProfessionalApplicationInput) {
     const state = await loadDemoState();
+    assertPriceOrder(input.price_min, input.price_max);
+    const refereeIds = [...new Set(input.referee_ids)];
+    if (input.submit) {
+      const issues = applicationIssues({ ...input, referee_ids: refereeIds });
+      if (issues.length) throw new Error(issues[0]);
+    }
+    for (const refereeId of refereeIds) {
+      if (refereeId === userId) throw new Error('You cannot vouch for your own application.');
+      if (!areConnected(state, userId, refereeId)) throw new Error('References must be people you are already connected with.');
+    }
+    if (refereeIds.length > 2) throw new Error('Choose at most 2 references.');
+    const now = nowIso();
     const professional: Professional = {
-      id: createId('pro'), owner_user_id: data.owner_user_id ?? null, created_by: userId,
-      name: data.name, category: data.category, bio: data.bio ?? null, location: data.location ?? null,
-      website: data.website ?? null, contact_email: data.contact_email ?? null, contact_phone: data.contact_phone ?? null,
-      experience: data.experience ?? null, availability: data.availability ?? null, avatar_url: data.avatar_url ?? null,
-      verification_status: 'unverified', is_verified: false, verified_at: null, created_at: nowIso(),
+      id: createId('pro'), owner_user_id: userId, created_by: userId,
+      name: input.name.trim(), category: input.category, bio: input.bio, location: input.location,
+      website: input.website, contact_email: input.contact_email, contact_phone: input.contact_phone,
+      experience: input.experience, availability: input.availability, avatar_url: input.avatar_url,
+      years_experience: input.years_experience, licence_number: input.licence_number?.trim() || null,
+      licence_issuer: input.licence_issuer?.trim() || null, service_area: input.service_area?.trim() || null,
+      photo_id_path: input.photo_id_path, insurance_doc_path: input.insurance_doc_path,
+      qualification_doc_path: input.qualification_doc_path,
+      conduct_accepted_at: input.conduct_accepted ? now : null,
+      application_status: 'draft', application_rejection_reason: null,
+      application_submitted_at: null, application_reviewed_at: null,
+      price_min: input.price_min, price_max: input.price_max, currency: input.currency,
+      pricing_unit: input.pricing_unit, pricing_notes: input.pricing_notes?.trim() || null,
+      verification_status: 'unverified', is_verified: false, verified_at: null, created_at: now,
     };
     state.professionals.push(professional);
+    for (const refereeId of refereeIds) {
+      const reference: ProfessionalReference = {
+        id: createId('ref'), professional_id: professional.id, applicant_id: userId, referee_id: refereeId,
+        status: 'requested', note: null, created_at: now, responded_at: null,
+      };
+      state.references.push(reference);
+      pushNotification(state, {
+        recipient_id: refereeId, type: 'reference_request', title: 'Reference requested',
+        body: `${state.profiles.find((profile) => profile.id === userId)?.full_name ?? 'A connection'} asked you to vouch for ${professional.name}.`,
+        reference_id: reference.id,
+      });
+    }
+    if (input.submit) {
+      professional.application_status = 'pending';
+      professional.application_submitted_at = now;
+    }
     await save(state);
     return professional;
   },
+  async finalizeProfessionalApplication(userId: string, professionalId: string) {
+    const state = await loadDemoState();
+    const professional = state.professionals.find((item) => item.id === professionalId);
+    if (!professional || (professional.created_by !== userId && professional.owner_user_id !== userId)) throw new Error('Not authorized');
+    if (professional.application_status !== 'draft') throw new Error('Only a draft application can be submitted.');
+    const refereeIds = state.references.filter((reference) => reference.professional_id === professionalId).map((reference) => reference.referee_id);
+    const issues = applicationIssues({
+      name: professional.name, category: professional.category, bio: professional.bio, location: professional.location,
+      website: professional.website, contact_email: professional.contact_email, contact_phone: professional.contact_phone,
+      experience: professional.experience, availability: professional.availability, avatar_url: professional.avatar_url,
+      years_experience: professional.years_experience, licence_number: professional.licence_number,
+      licence_issuer: professional.licence_issuer, service_area: professional.service_area,
+      photo_id_path: professional.photo_id_path, insurance_doc_path: professional.insurance_doc_path,
+      qualification_doc_path: professional.qualification_doc_path, conduct_accepted: Boolean(professional.conduct_accepted_at),
+      price_min: professional.price_min, price_max: professional.price_max, currency: professional.currency,
+      pricing_unit: professional.pricing_unit, pricing_notes: professional.pricing_notes,
+      referee_ids: refereeIds, submit: true,
+    });
+    if (issues.length) throw new Error(issues[0]);
+    professional.application_status = 'pending';
+    professional.application_submitted_at = nowIso();
+    await save(state);
+    return professional;
+  },
+  async respondProfessionalReference(referenceId: string, userId: string, confirm: boolean) {
+    const state = await loadDemoState();
+    const reference = state.references.find((item) => item.id === referenceId);
+    if (!reference || reference.referee_id !== userId) throw new Error('Not authorized');
+    if (reference.status !== 'requested') throw new Error('This reference is no longer open.');
+    reference.status = confirm ? 'confirmed' : 'declined';
+    reference.responded_at = nowIso();
+    const professional = state.professionals.find((item) => item.id === reference.professional_id);
+    const referee = state.profiles.find((profile) => profile.id === userId);
+    pushNotification(state, {
+      recipient_id: reference.applicant_id,
+      type: 'reference_request',
+      title: confirm ? 'Reference confirmed' : 'Reference declined',
+      body: `${referee?.full_name ?? 'A connection'} ${confirm ? 'vouched for' : 'declined to vouch for'} ${professional?.name ?? 'your application'}.`,
+      reference_id: reference.id,
+    });
+    await save(state);
+    return reference;
+  },
   async recommendProfessional(recommenderId: string, professionalId: string, note: string | null, visibility: ProfessionalRecommendation['visibility']) {
     const state = await loadDemoState();
+    const professional = state.professionals.find((item) => item.id === professionalId);
+    if (!professional || !isApprovedProfessional(professional)) throw new Error('Only approved professionals can be recommended.');
     if (state.recommendations.some((r) => r.recommender_id === recommenderId && r.professional_id === professionalId && r.status === 'active')) {
       throw new Error('You already recommend this professional.');
     }
@@ -252,6 +343,8 @@ export const demoApi = {
   },
   async requestIntroduction(requesterId: string, intermediaryId: string, professionalId: string, message: string | null) {
     const state = await loadDemoState();
+    const requested = state.professionals.find((item) => item.id === professionalId);
+    if (!requested || !isApprovedProfessional(requested)) throw new Error('Introductions are available once a professional is approved.');
     if (!areConnected(state, requesterId, intermediaryId)) throw new Error('You can only request introductions through people in your circle.');
     const intermediary = state.profiles.find((p) => p.id === intermediaryId);
     if (intermediary && !intermediary.privacy.acceptIntroductions) throw new Error('This person is not accepting introduction requests.');
@@ -367,12 +460,14 @@ export const demoApi = {
       return p.full_name.toLowerCase().includes(q) || (p.city ?? '').toLowerCase().includes(q);
     });
     const networkProfessionals = state.professionals.filter((p) => {
+      if (!isApprovedProfessional(p)) return false;
       if (!recommendedProIds.has(p.id) && !state.personalTrusts.some((t) => t.user_id === userId && t.professional_id === p.id)) return false;
       if (category && p.category !== category) return false;
       if (!q) return true;
       return p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q) || (p.location ?? '').toLowerCase().includes(q);
     });
     const generalProfessionals = state.professionals.filter((p) => {
+      if (!isApprovedProfessional(p)) return false;
       if (recommendedProIds.has(p.id)) return false;
       if (state.personalTrusts.some((t) => t.user_id === userId && t.professional_id === p.id)) return false;
       if (p.created_by !== userId) return false;
@@ -389,6 +484,7 @@ export const demoApi = {
     state.profiles = state.profiles.filter((p) => p.id !== userId);
     state.connections = state.connections.filter((c) => c.requester_id !== userId && c.recipient_id !== userId);
     state.recommendations = state.recommendations.filter((r) => r.recommender_id !== userId);
+    state.references = state.references.filter((r) => r.applicant_id !== userId && r.referee_id !== userId);
     state.personalTrusts = state.personalTrusts.filter((t) => t.user_id !== userId);
     state.introductions = state.introductions.filter((i) => i.requester_id !== userId && i.intermediary_id !== userId);
     state.notifications = state.notifications.filter((n) => n.recipient_id !== userId);
@@ -409,9 +505,36 @@ export const demoApi = {
       { id: createId('conn'), requester_id: currentUserId, recipient_id: sarah.id, status: 'accepted', created_at: nowIso(), updated_at: nowIso() },
       { id: createId('conn'), requester_id: james.id, recipient_id: currentUserId, status: 'accepted', created_at: nowIso(), updated_at: nowIso() },
     );
-    const alex: Professional = { id: createId('pro'), owner_user_id: null, created_by: sarah.id, name: 'Alex Rivera', category: 'Personal Training and Fitness', bio: 'Strength coach focused on sustainable training.', location: 'Austin', website: null, contact_email: null, contact_phone: null, experience: 'Self-reported: 8 years coaching', availability: 'Weekday mornings', avatar_url: null, verification_status: 'unverified', is_verified: true, verified_at: nowIso(), created_at: nowIso() };
-    const morgan: Professional = { id: createId('pro'), owner_user_id: null, created_by: james.id, name: 'Morgan Ellis', category: 'Electricians and Plumbers', bio: 'Residential electrician.', location: 'Austin', website: null, contact_email: null, contact_phone: null, experience: null, availability: null, avatar_url: null, verification_status: 'unverified', is_verified: false, verified_at: null, created_at: nowIso() };
+    const reviewedAt = nowIso();
+    const alex: Professional = {
+      id: createId('pro'), owner_user_id: null, created_by: sarah.id, name: 'Alex Rivera', category: 'Personal Training and Fitness',
+      bio: 'Strength coach focused on sustainable training.', location: 'Austin', website: null, contact_email: null, contact_phone: null,
+      experience: '8 years coaching', availability: 'Weekday mornings', avatar_url: null,
+      years_experience: 8, licence_number: 'PT-18420', licence_issuer: 'CIMSPA', service_area: 'Austin and surrounding towns',
+      photo_id_path: 'professionals/sample/photo-id/alex-rivera.jpg', insurance_doc_path: 'professionals/sample/insurance/alex-rivera.pdf',
+      qualification_doc_path: 'professionals/sample/qualification/alex-rivera.pdf', conduct_accepted_at: reviewedAt,
+      application_status: 'approved', application_rejection_reason: null, application_submitted_at: reviewedAt, application_reviewed_at: reviewedAt,
+      price_min: 40, price_max: 60, currency: 'GBP', pricing_unit: 'per_session', pricing_notes: 'First session includes a movement screen.',
+      verification_status: 'verified', is_verified: true, verified_at: reviewedAt, created_at: reviewedAt,
+    };
+    const morgan: Professional = {
+      id: createId('pro'), owner_user_id: currentUserId, created_by: currentUserId, name: 'Morgan Ellis', category: 'Electricians and Plumbers',
+      bio: 'Residential electrician applying to join the circle.', location: 'Austin', website: null, contact_email: null, contact_phone: null,
+      experience: '11 years on domestic installs', availability: 'Weekday afternoons', avatar_url: null,
+      years_experience: 11, licence_number: 'NICEIC-5521', licence_issuer: 'NICEIC', service_area: 'Austin',
+      photo_id_path: 'professionals/sample/photo-id/morgan-ellis.jpg', insurance_doc_path: null,
+      qualification_doc_path: 'professionals/sample/qualification/morgan-ellis.pdf', conduct_accepted_at: reviewedAt,
+      application_status: 'pending', application_rejection_reason: null, application_submitted_at: reviewedAt, application_reviewed_at: null,
+      price_min: 80, price_max: 120, currency: 'GBP', pricing_unit: 'per_hour', pricing_notes: 'Call-out is included in the first hour.',
+      verification_status: 'unverified', is_verified: false, verified_at: null, created_at: reviewedAt,
+    };
     state.professionals.push(alex, morgan);
+    state.references.push(
+      { id: createId('ref'), professional_id: alex.id, applicant_id: sarah.id, referee_id: currentUserId, status: 'confirmed', note: 'I have trained with Alex.', created_at: reviewedAt, responded_at: reviewedAt },
+      { id: createId('ref'), professional_id: alex.id, applicant_id: sarah.id, referee_id: james.id, status: 'confirmed', note: null, created_at: reviewedAt, responded_at: reviewedAt },
+      { id: createId('ref'), professional_id: morgan.id, applicant_id: currentUserId, referee_id: sarah.id, status: 'confirmed', note: 'Morgan rewired our kitchen.', created_at: reviewedAt, responded_at: reviewedAt },
+      { id: createId('ref'), professional_id: morgan.id, applicant_id: currentUserId, referee_id: james.id, status: 'requested', note: null, created_at: reviewedAt, responded_at: null },
+    );
     state.recommendations.push(
       { id: createId('rec'), recommender_id: sarah.id, professional_id: alex.id, note: 'Helped me rebuild a consistent routine.', visibility: 'connections', status: 'active', created_at: nowIso() },
       { id: createId('rec'), recommender_id: james.id, professional_id: morgan.id, note: 'Fixed our panel upgrade quickly.', visibility: 'connections', status: 'active', created_at: nowIso() },

@@ -5,9 +5,11 @@ import { Screen } from '@/components/ui/Screen';
 import { TextField } from '@/components/ui/TextField';
 import { Avatar } from '@/components/ui/Avatar';
 import { VerifiedBadge } from '@/components/ui/VerifiedBadge';
+import { PriceRange } from '@/components/ui/PriceRange';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useAuth } from '@/contexts/AuthContext';
 import { api } from '@/lib/api';
+import { isVerifiedProfessional } from '@/lib/application';
 import { PROFESSIONAL_CATEGORIES, type Profile, type Professional } from '@/types';
 import { colors, radii, spacing, typography } from '@/constants/theme';
 
@@ -53,8 +55,9 @@ export default function DiscoverScreen() {
           <Pressable key={p.id} style={styles.row} onPress={() => router.push(`/professional/${p.id}`)}>
             <Avatar name={p.name} uri={p.avatar_url} />
             <View style={{ flex: 1, gap: 4 }}>
-              <View style={styles.titleLine}><Text style={styles.rowTitle}>{p.name}</Text>{p.is_verified ? <VerifiedBadge /> : null}</View>
+              <View style={styles.titleLine}><Text style={styles.rowTitle}>{p.name}</Text>{isVerifiedProfessional(p) ? <VerifiedBadge /> : null}</View>
               <Text style={styles.rowSub}>{p.category}</Text>
+              <PriceRange professional={p} />
               <Text style={styles.badge}>Network recommendation</Text>
             </View>
           </Pressable>
@@ -64,7 +67,8 @@ export default function DiscoverScreen() {
         <Pressable key={p.id} style={styles.row} onPress={() => router.push(`/professional/${p.id}`)}>
           <Avatar name={p.name} uri={p.avatar_url} />
           <View style={{ flex: 1, gap: 4 }}>
-            <View style={styles.titleLine}><Text style={styles.rowTitle}>{p.name}</Text>{p.is_verified ? <VerifiedBadge /> : null}</View>
+            <View style={styles.titleLine}><Text style={styles.rowTitle}>{p.name}</Text>{isVerifiedProfessional(p) ? <VerifiedBadge /> : null}</View>
+            <PriceRange professional={p} />
             <Text style={styles.rowSub}>Not presented as circle-vetted</Text>
           </View>
         </Pressable>

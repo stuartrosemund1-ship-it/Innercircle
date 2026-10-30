@@ -8,7 +8,7 @@ import { LoadingState } from '@/components/ui/LoadingState';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCircleData } from '@/hooks/useCircleData';
 import { api } from '@/lib/api';
-import type { Connection, Profile } from '@/types';
+import type { Connection, ProfessionalReference, Profile } from '@/types';
 import { colors, radii, spacing, typography } from '@/constants/theme';
 
 export default function ActivityScreen() {
@@ -16,6 +16,7 @@ export default function ActivityScreen() {
   const data = useCircleData();
   const router = useRouter();
   const [profiles, setProfiles] = useState<Record<string, Profile>>({});
+  const [references, setReferences] = useState<ProfessionalReference[]>([]);
   useEffect(() => {
     if (!user) return;
     (async () => {
@@ -23,6 +24,7 @@ export default function ActivityScreen() {
       const map: Record<string, Profile> = {};
       for (const p of state.profiles) map[p.id] = p;
       setProfiles(map);
+      setReferences(state.references.filter((reference) => reference.referee_id === user.id && reference.status === 'requested'));
     })();
   }, [user, data.connections, data.notifications]);
   if (!user) return null;
@@ -48,6 +50,26 @@ export default function ActivityScreen() {
           </View>
         </View>
       ))}
+      <Text style={styles.section}>Reference requests</Text>
+      {references.length === 0 ? <Text style={styles.muted}>No one is waiting on you to vouch for an application.</Text> : references.map((reference) => {
+        const applicant = profiles[reference.applicant_id];
+        const professional = data.professionals.find((item) => item.id === reference.professional_id);
+        return (
+          <View key={reference.id} style={styles.card}>
+            <Text style={styles.cardTitle}>{applicant?.full_name ?? 'A connection'} asked you to vouch for {professional?.name ?? 'a professional'}</Text>
+            <View style={styles.rowActions}>
+              <Button title="Confirm" variant="teal" onPress={async () => {
+                try { await api.respondProfessionalReference(reference.id, user.id, true); await data.refresh(); }
+                catch (e) { Alert.alert('Could not confirm', e instanceof Error ? e.message : 'Try again'); }
+              }} style={{ flex: 1 }} />
+              <Button title="Decline" variant="secondary" onPress={async () => {
+                try { await api.respondProfessionalReference(reference.id, user.id, false); await data.refresh(); }
+                catch (e) { Alert.alert('Could not decline', e instanceof Error ? e.message : 'Try again'); }
+              }} style={{ flex: 1 }} />
+            </View>
+          </View>
+        );
+      })}
       <Text style={styles.section}>Introduction requests</Text>
       {pendingIntros.length === 0 ? <Text style={styles.muted}>No pending introductions to review.</Text> : pendingIntros.map((i) => (
         <Pressable key={i.id} style={styles.card} onPress={() => router.push(`/intro/${i.id}`)}>

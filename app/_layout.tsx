@@ -58,7 +58,7 @@ export default function RootLayout() {
           <Stack.Screen name="intro/[id]" options={{ title: 'Introduction' }} />
           <Stack.Screen name="messages/[id]" options={{ title: 'Messages' }} />
           <Stack.Screen name="add-person" options={{ title: 'Add a person', presentation: 'modal' }} />
-          <Stack.Screen name="add-professional" options={{ title: 'Add a professional', presentation: 'modal' }} />
+          <Stack.Screen name="add-professional" options={{ title: 'Apply as a professional', presentation: 'modal' }} />
           <Stack.Screen name="invite" options={{ title: 'Invite a friend', presentation: 'modal' }} />
           <Stack.Screen name="join/[token]" options={{ title: 'Accept invite' }} />
           <Stack.Screen name="recommend" options={{ title: 'Recommend', presentation: 'modal' }} />

@@ -1,7 +1,7 @@
 import { isDemoMode } from '@/lib/config';
 import { demoApi, subscribeDemo } from '@/lib/demo/store';
 import { supabaseApi, subscribeSupabase } from '@/lib/supabase/api';
-import type { PrivacySettings, Professional, ProfessionalRecommendation, Profile } from '@/types';
+import type { PrivacySettings, ProfessionalApplicationInput, ProfessionalRecommendation, Profile } from '@/types';
 
 const backend = isDemoMode ? demoApi : supabaseApi;
 
@@ -22,7 +22,9 @@ export const api = {
   respondConnection: (connectionId: string, userId: string, accept: boolean) => backend.respondConnection(connectionId, userId, accept),
   removeConnection: (connectionId: string, userId: string) => backend.removeConnection(connectionId, userId),
   blockUser: (blockerId: string, otherId: string) => backend.blockUser(blockerId, otherId),
-  createProfessional: (userId: string, data: Omit<Professional, 'id' | 'created_at' | 'created_by' | 'verification_status' | 'is_verified' | 'verified_at' | 'owner_user_id'> & { owner_user_id?: string | null }) => backend.createProfessional(userId, data),
+  submitProfessionalApplication: (userId: string, input: ProfessionalApplicationInput) => backend.submitProfessionalApplication(userId, input),
+  finalizeProfessionalApplication: (userId: string, professionalId: string) => backend.finalizeProfessionalApplication(userId, professionalId),
+  respondProfessionalReference: (referenceId: string, userId: string, confirm: boolean) => backend.respondProfessionalReference(referenceId, userId, confirm),
   recommendProfessional: (recommenderId: string, professionalId: string, note: string | null, visibility: ProfessionalRecommendation['visibility']) => backend.recommendProfessional(recommenderId, professionalId, note, visibility),
   withdrawRecommendation: (recommendationId: string, userId: string) => backend.withdrawRecommendation(recommendationId, userId),
   getVisibleRecommendations: (userId: string) => backend.getVisibleRecommendations(userId),

@@ -1,16 +1,33 @@
-import { Alert, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Screen } from '@/components/ui/Screen';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/contexts/AuthContext';
 import { api } from '@/lib/api';
+import { applicationStatusLabel } from '@/lib/application';
 import { isDemoMode } from '@/lib/config';
+import type { Professional } from '@/types';
 import { colors, radii, spacing, typography } from '@/constants/theme';
 
 export default function ProfileScreen() {
   const { user, signOut, refresh } = useAuth();
   const router = useRouter();
+  const [applications, setApplications] = useState<Professional[]>([]);
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    const load = () => {
+      api.getState().then((state) => {
+        if (cancelled) return;
+        setApplications(state.professionals.filter((professional) => professional.created_by === user.id || professional.owner_user_id === user.id));
+      });
+    };
+    load();
+    const unsubscribe = api.subscribe(load);
+    return () => { cancelled = true; unsubscribe(); };
+  }, [user]);
   if (!user) return null;
   return (
     <Screen scroll>
@@ -23,6 +40,18 @@ export default function ProfileScreen() {
       <Button title="Edit profile" onPress={() => router.push('/edit-profile')} />
       <Button title="Privacy controls" variant="secondary" onPress={() => router.push('/privacy')} style={styles.gap} />
       <Button title="Invite a friend" variant="teal" onPress={() => router.push('/invite')} style={styles.gap} />
+      <Button title="Apply as a professional" onPress={() => router.push('/add-professional')} style={styles.gap} />
+      {applications.length > 0 ? (
+        <View style={styles.applications}>
+          <Text style={styles.section}>Your applications</Text>
+          {applications.map((professional) => (
+            <Pressable key={professional.id} style={styles.application} onPress={() => router.push(`/professional/${professional.id}`)}>
+              <Text style={styles.applicationName}>{professional.name}</Text>
+              <Text style={styles.meta}>{applicationStatusLabel(professional.application_status)}</Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
       {isDemoMode ? (
         <View style={styles.demoBox}>
           <Text style={styles.demoTitle}>Development tools</Text>
@@ -49,6 +78,10 @@ const styles = StyleSheet.create({
   name: { ...typography.h2, color: colors.text.primary },
   meta: { ...typography.caption, color: colors.text.secondary },
   gap: { marginTop: spacing.sm },
+  applications: { marginTop: spacing.lg, gap: spacing.sm },
+  section: { ...typography.h3, color: colors.text.primary },
+  application: { backgroundColor: colors.surface.card, borderRadius: radii.md, borderWidth: 1, borderColor: colors.surface.border, padding: spacing.md },
+  applicationName: { ...typography.bodyMedium, color: colors.text.primary },
   demoBox: { marginTop: spacing.lg, padding: spacing.md, borderRadius: radii.md, backgroundColor: colors.demo.banner, gap: spacing.xs },
   demoTitle: { ...typography.h3, color: colors.demo.bannerText },
   demoBody: { ...typography.caption, color: colors.demo.bannerText, marginBottom: spacing.sm },

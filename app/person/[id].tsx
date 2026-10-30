@@ -9,6 +9,7 @@ import { LoadingState } from '@/components/ui/LoadingState';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useAuth } from '@/contexts/AuthContext';
 import { api } from '@/lib/api';
+import { isApprovedProfessional, isVerifiedProfessional } from '@/lib/application';
 import type { Professional, Profile, ProfessionalRecommendation } from '@/types';
 import { colors, radii, spacing, typography } from '@/constants/theme';
 
@@ -28,7 +29,7 @@ export default function PersonDetailScreen() {
       const visible = await api.getVisibleRecommendations(user.id);
       const theirs = visible.filter((r) => r.recommender_id === id && r.status === 'active').map((r) => {
         const pro = state.professionals.find((p) => p.id === r.professional_id);
-        return pro ? { rec: r, pro } : null;
+        return pro && isApprovedProfessional(pro) ? { rec: r, pro } : null;
       }).filter(Boolean) as { rec: ProfessionalRecommendation; pro: Professional }[];
       setRecs(person?.privacy.showProfessionalRelationships === 'none' && person.id !== user.id ? [] : theirs);
       setLoading(false);
@@ -46,7 +47,7 @@ export default function PersonDetailScreen() {
       <Text style={styles.section}>Professionals they recommend</Text>
       {recs.length === 0 ? <Text style={styles.muted}>No recommendations visible to you.</Text> : recs.map(({ rec, pro }) => (
         <Pressable key={rec.id} style={styles.card} onPress={() => router.push(`/professional/${pro.id}`)}>
-          <View style={styles.titleLine}><Text style={styles.cardTitle}>{pro.name}</Text>{pro.is_verified ? <VerifiedBadge /> : null}</View>
+          <View style={styles.titleLine}><Text style={styles.cardTitle}>{pro.name}</Text>{isVerifiedProfessional(pro) ? <VerifiedBadge /> : null}</View>
           <Text style={styles.cardBody}>{pro.category}</Text>
           {profile.privacy.acceptIntroductions ? (
             <Button title="Request introduction" variant="secondary" onPress={() => router.push({ pathname: '/request-intro', params: { professionalId: pro.id, intermediaryId: profile.id } })} style={{ marginTop: spacing.sm }} />
