@@ -2,15 +2,15 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   AppNotification, Connection, Conversation, ConversationMember, DEFAULT_PRIVACY,
   IntroductionRequest, Invitation, Message, PersonalTrust, PrivacySettings,
-  Professional, ProfessionalApplicationInput, ProfessionalRecommendation, ProfessionalReference, Profile,
+  Professional, ProfessionalApplicationInput, ProfessionalRecommendation, ProfessionalReference, Profile, Report, ReportReason, ReportTargetType,
 } from '@/types';
 import { applicationIssues, assertPriceOrder, isApprovedProfessional } from '@/lib/application';
 import { createId, hashToken, nowIso } from '@/lib/id';
 
-const STORAGE_KEY = 'lifecircle.demo.v2';
+const STORAGE_KEY = 'lifecircle.demo.v3';
 
 export interface DemoState {
-  version: 2;
+  version: 3;
   environment: 'development-demo';
   currentUserId: string | null;
   sessionPasswordByEmail: Record<string, string>;
@@ -26,15 +26,16 @@ export interface DemoState {
   messages: Message[];
   invitations: Invitation[];
   notifications: AppNotification[];
+  reports: Report[];
   sampleDataLoaded: boolean;
 }
 
 function emptyState(): DemoState {
   return {
-    version: 2, environment: 'development-demo', currentUserId: null,
+    version: 3, environment: 'development-demo', currentUserId: null,
     sessionPasswordByEmail: {}, profiles: [], connections: [], professionals: [],
     references: [], recommendations: [], personalTrusts: [], introductions: [], conversations: [],
-    conversationMembers: [], messages: [], invitations: [], notifications: [],
+    conversationMembers: [], messages: [],     invitations: [], notifications: [], reports: [],
     sampleDataLoaded: false,
   };
 }
@@ -53,8 +54,9 @@ export async function loadDemoState(): Promise<DemoState> {
     const raw = await AsyncStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as DemoState;
-      if (parsed.version === 2) {
+      if (parsed.version === 3) {
         parsed.references = parsed.references ?? [];
+        parsed.reports = parsed.reports ?? [];
         memory = parsed;
         return memory;
       }
@@ -104,8 +106,8 @@ export const demoApi = {
     if (state.profiles.some((p) => p.email === normalized)) throw new Error('An account with this email already exists.');
     const profile: Profile = {
       id: createId('user'), email: normalized, full_name: fullName.trim() || 'New member',
-      avatar_url: null, bio: null, city: null, interests: [], privacy: { ...DEFAULT_PRIVACY },
-      onboarding_completed: false, created_at: nowIso(),
+      avatar_url: null, bio: null, city: null, interests: [],       privacy: { ...DEFAULT_PRIVACY },
+      onboarding_completed: false, is_admin: false, terms_accepted_at: nowIso(), created_at: nowIso(),
     };
     state.profiles.push(profile);
     state.sessionPasswordByEmail[normalized] = password;
@@ -134,11 +136,89 @@ export const demoApi = {
     const state = await loadDemoState();
     const idx = state.profiles.findIndex((p) => p.id === userId);
     if (idx < 0) throw new Error('Profile not found');
-    state.profiles[idx] = { ...state.profiles[idx], ...patch, id: userId };
+    const safe = { ...patch };
+    delete safe.is_admin;
+    state.profiles[idx] = { ...state.profiles[idx], ...safe, id: userId, is_admin: state.profiles[idx].is_admin };
     await save(state);
     return state.profiles[idx];
   },
   async updatePrivacy(userId: string, privacy: PrivacySettings) { return this.updateProfile(userId, { privacy }); },
+  async setDemoAdmin(userId: string, enabled: boolean) {
+    const state = await loadDemoState();
+    if (state.currentUserId !== userId) throw new Error('Not authorized');
+    const profile = state.profiles.find((item) => item.id === userId);
+    if (!profile) throw new Error('Profile not found');
+    profile.is_admin = enabled;
+    await save(state);
+    return profile;
+  },
+  async fileReport(userId: string, input: { targetType: ReportTargetType; targetId: string; reason: ReportReason; details: string | null }) {
+    const state = await loadDemoState();
+    if (input.targetType === 'person' && input.targetId === userId) throw new Error('You cannot report yourself.');
+    if (input.targetType === 'person' && !state.profiles.some((profile) => profile.id === input.targetId)) throw new Error('Person not found');
+    if (input.targetType === 'professional' && !state.professionals.some((professional) => professional.id === input.targetId)) throw new Error('Professional not found');
+    const report: Report = {
+      id: createId('report'), reporter_id: userId, target_type: input.targetType,
+      target_profile_id: input.targetType === 'person' ? input.targetId : null,
+      target_professional_id: input.targetType === 'professional' ? input.targetId : null,
+      reason: input.reason, details: input.details?.trim() || null, status: 'open',
+      resolution_note: null, created_at: nowIso(), resolved_at: null, resolved_by: null,
+    };
+    state.reports.push(report);
+    await save(state);
+    return report;
+  },
+  async adminDecideApplication(userId: string, professionalId: string, decision: 'approved' | 'rejected', reason: string | null) {
+    const state = await loadDemoState();
+    const admin = state.profiles.find((profile) => profile.id === userId);
+    if (!admin?.is_admin || state.currentUserId !== userId) throw new Error('Not authorized');
+    const professional = state.professionals.find((item) => item.id === professionalId);
+    if (!professional) throw new Error('Application not found');
+    if (decision === 'rejected' && !reason?.trim()) throw new Error('A rejection reason is required');
+    if (decision === 'approved') {
+      if (professional.price_min == null || professional.price_max == null || !professional.pricing_unit) throw new Error('A price range is required before approval');
+      const refs = state.references.filter((reference) => reference.professional_id === professionalId);
+      if (!refs.some((reference) => reference.status === 'confirmed')) throw new Error('At least one confirmed reference is required before approval');
+      if (refs.some((reference) => reference.status === 'requested')) throw new Error('Outstanding reference requests must be confirmed before approval');
+      professional.application_status = 'approved';
+      professional.application_rejection_reason = null;
+    } else {
+      professional.application_status = 'rejected';
+      professional.application_rejection_reason = reason!.trim();
+      professional.is_verified = false;
+      professional.verified_at = null;
+      professional.verification_status = 'unverified';
+    }
+    professional.application_reviewed_at = nowIso();
+    await save(state);
+    return professional;
+  },
+  async adminSetVerified(userId: string, professionalId: string, verified: boolean) {
+    const state = await loadDemoState();
+    const admin = state.profiles.find((profile) => profile.id === userId);
+    if (!admin?.is_admin || state.currentUserId !== userId) throw new Error('Not authorized');
+    const professional = state.professionals.find((item) => item.id === professionalId);
+    if (!professional) throw new Error('Application not found');
+    if (verified && professional.application_status !== 'approved') throw new Error('Only approved professionals can be verified');
+    professional.is_verified = verified;
+    professional.verified_at = verified ? (professional.verified_at ?? nowIso()) : null;
+    professional.verification_status = verified ? 'verified' : 'unverified';
+    await save(state);
+    return professional;
+  },
+  async adminResolveReport(userId: string, reportId: string, status: 'resolved' | 'dismissed', note: string | null) {
+    const state = await loadDemoState();
+    const admin = state.profiles.find((profile) => profile.id === userId);
+    if (!admin?.is_admin || state.currentUserId !== userId) throw new Error('Not authorized');
+    const report = state.reports.find((item) => item.id === reportId);
+    if (!report || report.status !== 'open') throw new Error('Open report not found');
+    report.status = status;
+    report.resolution_note = note?.trim() || null;
+    report.resolved_at = nowIso();
+    report.resolved_by = userId;
+    await save(state);
+    return report;
+  },
   async listConnections(userId: string) {
     const state = await loadDemoState();
     return state.connections.filter((c) => c.requester_id === userId || c.recipient_id === userId);
@@ -490,14 +570,17 @@ export const demoApi = {
     state.notifications = state.notifications.filter((n) => n.recipient_id !== userId);
     state.conversationMembers = state.conversationMembers.filter((m) => m.user_id !== userId);
     state.invitations = state.invitations.filter((i) => i.inviter_id !== userId);
+    state.reports = state.reports.filter((report) => report.reporter_id !== userId);
+    state.professionals = state.professionals.filter((professional) => professional.created_by !== userId && professional.owner_user_id !== userId);
+    state.messages = state.messages.filter((message) => message.sender_id !== userId);
     if (state.currentUserId === userId) state.currentUserId = null;
     await save(state);
   },
   async loadSampleNetwork(currentUserId: string) {
     const state = await loadDemoState();
     if (state.sampleDataLoaded) return state;
-    const sarah: Profile = { id: createId('user'), email: 'sarah.demo@lifecircle.dev', full_name: 'Sarah Chen', avatar_url: null, bio: 'Friend and neighbour.', city: 'Austin', interests: ['Fitness', 'Home'], privacy: { ...DEFAULT_PRIVACY }, onboarding_completed: true, created_at: nowIso() };
-    const james: Profile = { id: createId('user'), email: 'james.demo@lifecircle.dev', full_name: 'James Okonkwo', avatar_url: null, bio: 'Colleague with reliable recommendations.', city: 'Austin', interests: ['Finance'], privacy: { ...DEFAULT_PRIVACY }, onboarding_completed: true, created_at: nowIso() };
+    const sarah: Profile = { id: createId('user'), email: 'sarah.demo@lifecircle.dev', full_name: 'Sarah Chen', avatar_url: null, bio: 'Friend and neighbour.', city: 'Bristol', interests: ['Fitness', 'Home'], privacy: { ...DEFAULT_PRIVACY }, onboarding_completed: true, is_admin: false, terms_accepted_at: nowIso(), created_at: nowIso() };
+    const james: Profile = { id: createId('user'), email: 'james.demo@lifecircle.dev', full_name: 'James Okonkwo', avatar_url: null, bio: 'Colleague with reliable recommendations.', city: 'Bristol', interests: ['Finance'], privacy: { ...DEFAULT_PRIVACY }, onboarding_completed: true, is_admin: false, terms_accepted_at: nowIso(), created_at: nowIso() };
     state.profiles.push(sarah, james);
     state.sessionPasswordByEmail[sarah.email] = 'demo-only';
     state.sessionPasswordByEmail[james.email] = 'demo-only';
@@ -508,9 +591,9 @@ export const demoApi = {
     const reviewedAt = nowIso();
     const alex: Professional = {
       id: createId('pro'), owner_user_id: null, created_by: sarah.id, name: 'Alex Rivera', category: 'Personal Training and Fitness',
-      bio: 'Strength coach focused on sustainable training.', location: 'Austin', website: null, contact_email: null, contact_phone: null,
+      bio: 'Strength coach focused on sustainable training.', location: 'Bristol', website: null, contact_email: null, contact_phone: null,
       experience: '8 years coaching', availability: 'Weekday mornings', avatar_url: null,
-      years_experience: 8, licence_number: 'PT-18420', licence_issuer: 'CIMSPA', service_area: 'Austin and surrounding towns',
+      years_experience: 8, licence_number: 'PT-18420', licence_issuer: 'CIMSPA', service_area: 'Bristol and surrounding towns',
       photo_id_path: 'professionals/sample/photo-id/alex-rivera.jpg', insurance_doc_path: 'professionals/sample/insurance/alex-rivera.pdf',
       qualification_doc_path: 'professionals/sample/qualification/alex-rivera.pdf', conduct_accepted_at: reviewedAt,
       application_status: 'approved', application_rejection_reason: null, application_submitted_at: reviewedAt, application_reviewed_at: reviewedAt,
@@ -519,16 +602,47 @@ export const demoApi = {
     };
     const morgan: Professional = {
       id: createId('pro'), owner_user_id: currentUserId, created_by: currentUserId, name: 'Morgan Ellis', category: 'Electricians and Plumbers',
-      bio: 'Residential electrician applying to join the circle.', location: 'Austin', website: null, contact_email: null, contact_phone: null,
+      bio: 'Residential electrician applying to join the circle.', location: 'Bristol', website: null, contact_email: null, contact_phone: null,
       experience: '11 years on domestic installs', availability: 'Weekday afternoons', avatar_url: null,
-      years_experience: 11, licence_number: 'NICEIC-5521', licence_issuer: 'NICEIC', service_area: 'Austin',
+      years_experience: 11, licence_number: 'NICEIC-5521', licence_issuer: 'NICEIC', service_area: 'Bristol',
       photo_id_path: 'professionals/sample/photo-id/morgan-ellis.jpg', insurance_doc_path: null,
       qualification_doc_path: 'professionals/sample/qualification/morgan-ellis.pdf', conduct_accepted_at: reviewedAt,
       application_status: 'pending', application_rejection_reason: null, application_submitted_at: reviewedAt, application_reviewed_at: null,
       price_min: 80, price_max: 120, currency: 'GBP', pricing_unit: 'per_hour', pricing_notes: 'Call-out is included in the first hour.',
       verification_status: 'unverified', is_verified: false, verified_at: null, created_at: reviewedAt,
     };
-    state.professionals.push(alex, morgan);
+    const priya: Professional = {
+      id: createId('pro'), owner_user_id: sarah.id, created_by: sarah.id, name: 'Priya Nair', category: 'Accountants and Financial Advisers',
+      bio: 'Chartered accountant for small practices.', location: 'Bristol', website: null, contact_email: null, contact_phone: null,
+      experience: '14 years', availability: 'Weekdays', avatar_url: null,
+      years_experience: 14, licence_number: 'ICAEW-229184', licence_issuer: 'ICAEW', service_area: 'Bristol and Bath',
+      photo_id_path: 'professionals/sample/photo-id/priya-nair.jpg', insurance_doc_path: 'professionals/sample/insurance/priya-nair.pdf',
+      qualification_doc_path: 'professionals/sample/qualification/priya-nair.pdf', conduct_accepted_at: reviewedAt,
+      application_status: 'pending', application_rejection_reason: null, application_submitted_at: reviewedAt, application_reviewed_at: null,
+      price_min: 55, price_max: 90, currency: 'GBP', pricing_unit: 'per_session', pricing_notes: 'A first meeting is charged at the lower rate.',
+      verification_status: 'unverified', is_verified: false, verified_at: null, created_at: reviewedAt,
+    };
+    const sam: Professional = {
+      id: createId('pro'), owner_user_id: james.id, created_by: james.id, name: 'Sam Brooks', category: 'Home Maintenance',
+      bio: 'Handyman for small household jobs.', location: 'Bristol', website: null, contact_email: null, contact_phone: null,
+      experience: '4 years', availability: null, avatar_url: null,
+      years_experience: 4, licence_number: 'HM-1002', licence_issuer: 'Self-declared', service_area: 'South Bristol',
+      photo_id_path: 'professionals/sample/photo-id/sam-brooks.jpg', insurance_doc_path: 'professionals/sample/insurance/sam-brooks.pdf',
+      qualification_doc_path: null, conduct_accepted_at: reviewedAt,
+      application_status: 'rejected', application_rejection_reason: 'The insurance document did not match the name on the application.', application_submitted_at: reviewedAt, application_reviewed_at: reviewedAt,
+      price_min: 30, price_max: 45, currency: 'GBP', pricing_unit: 'per_hour', pricing_notes: null,
+      verification_status: 'unverified', is_verified: false, verified_at: null, created_at: reviewedAt,
+    };
+    state.professionals.push(alex, morgan, priya, sam);
+    state.references.push(
+      { id: createId('ref'), professional_id: priya.id, applicant_id: sarah.id, referee_id: currentUserId, status: 'confirmed', note: 'Priya does our year-end accounts.', created_at: reviewedAt, responded_at: reviewedAt },
+      { id: createId('ref'), professional_id: priya.id, applicant_id: sarah.id, referee_id: james.id, status: 'confirmed', note: null, created_at: reviewedAt, responded_at: reviewedAt },
+    );
+    state.reports.push({
+      id: createId('report'), reporter_id: james.id, target_type: 'professional', target_profile_id: null, target_professional_id: morgan.id,
+      reason: 'false_credentials', details: 'Please check the registration number before approval.', status: 'open',
+      resolution_note: null, created_at: reviewedAt, resolved_at: null, resolved_by: null,
+    });
     state.references.push(
       { id: createId('ref'), professional_id: alex.id, applicant_id: sarah.id, referee_id: currentUserId, status: 'confirmed', note: 'I have trained with Alex.', created_at: reviewedAt, responded_at: reviewedAt },
       { id: createId('ref'), professional_id: alex.id, applicant_id: sarah.id, referee_id: james.id, status: 'confirmed', note: null, created_at: reviewedAt, responded_at: reviewedAt },

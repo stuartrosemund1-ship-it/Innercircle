@@ -24,10 +24,21 @@ export interface PrivacySettings {
   acceptIntroductions: boolean;
   showProfessionalRelationships: 'connections' | 'none';
 }
+export type ReportTargetType = 'person' | 'professional';
+export type ReportReason = 'harassment' | 'spam_or_scam' | 'false_credentials' | 'inappropriate_content' | 'safety' | 'other';
+export type ReportStatus = 'open' | 'resolved' | 'dismissed';
 export interface Profile {
   id: string; email: string; full_name: string; avatar_url: string | null;
   bio: string | null; city: string | null; interests: string[];
-  privacy: PrivacySettings; onboarding_completed: boolean; created_at: string;
+  privacy: PrivacySettings; onboarding_completed: boolean; is_admin: boolean;
+  terms_accepted_at: string | null; created_at: string;
+}
+export interface Report {
+  id: string; reporter_id: string; target_type: ReportTargetType;
+  target_profile_id: string | null; target_professional_id: string | null;
+  reason: ReportReason; details: string | null; status: ReportStatus;
+  resolution_note: string | null; created_at: string; resolved_at: string | null;
+  resolved_by: string | null;
 }
 export interface Connection {
   id: string; requester_id: string; recipient_id: string; status: ConnectionStatus;

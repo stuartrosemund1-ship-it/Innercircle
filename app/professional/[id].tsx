@@ -115,6 +115,7 @@ export default function ProfessionalDetailScreen() {
           </>
         ) : <Text style={styles.muted}>Private contact details are shared only after an introduction is accepted.</Text>}
       </View>
+      <Button title="Report this professional" variant="secondary" onPress={() => router.push({ pathname: '/report', params: { type: 'professional', id: pro.id } })} style={{ marginTop: spacing.md }} />
       <Text style={styles.section}>Recommended by</Text>
       {recommenders.length === 0 ? <Text style={styles.muted}>No visible recommenders for your permissions.</Text> : recommenders.map((r) => <Text key={r.id} style={styles.body}>{r.full_name}</Text>)}
       {isApprovedProfessional(pro) && recommenders.length > 0 && label !== 'personally_trusted' ? (

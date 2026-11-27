@@ -27,7 +27,7 @@ Do not put the service role or secret key in the app or in git. That key bypasse
 
 ### Database
 
-`001_lifecircle_schema.sql` is already applied on the hosted project. Apply `supabase/migrations/002_professional_verified.sql` and then `supabase/migrations/003_professional_application.sql` in the SQL editor before using applications or the verified badge against Supabase. Migration 003 is committed only. It has not been applied to the hosted database.
+`001_lifecircle_schema.sql` is already applied on the hosted project. Apply `supabase/migrations/002_professional_verified.sql` and then `supabase/migrations/003_professional_application.sql` in the SQL editor before using applications or the verified badge against Supabase. Migrations 003 and 004 are committed only. They have not been applied to the hosted database.
 
 003 adds the application (`draft`, `pending`, `approved`, `rejected`), licence and document paths, reference requests, and a required price range (`price_min`, `price_max`, `currency`, `pricing_unit`). Applicants can submit a draft as pending. They cannot approve or reject themselves, and they cannot set `is_verified`. Only `service_role`, `postgres`, or `supabase_admin` can do that. Approval also requires a price range and confirmed references, and a verified badge is cleared unless the application is approved.
 
@@ -45,6 +45,16 @@ where name = 'Example Name'
 ```
 
 `verified_at` is filled in when `is_verified` becomes true. Reject an application with `application_status = 'rejected'` and `application_rejection_reason`.
+
+`004_admin_and_legal.sql` adds `profiles.is_admin`, terms acceptance, reports, and admin review functions. Apply it yourself in the SQL editor after 003. A normal user cannot set `is_admin`. In the SQL editor (which runs as `postgres`), grant it with:
+
+```sql
+update public.profiles
+set is_admin = true
+where email = 'person@example.com';
+```
+
+After that, the Admin screen appears on their Profile. Approving, rejecting, the Verified badge, and closing reports go through `admin_decide_application`, `admin_set_verified`, and `admin_resolve_report`.
 
 Auth redirects to allow: `lifecircle://reset-password` and `lifecircle://**`. Invite links look like `lifecircle://join/<token>`.
 

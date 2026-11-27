@@ -24,11 +24,12 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     const inAuth = route[0] === '(auth)';
     const inOnboarding = route[0] === 'onboarding';
     const inJoin = route[0] === 'join';
+    const inLegal = route[0] === 'legal';
     const onReset = inAuth && route[1] === 'reset-password';
     const pendingInvite = getPendingInvite();
     if (user && pendingInvite && !inJoin) { router.replace(`/join/${pendingInvite}`); return; }
     if (user && isPasswordRecovery() && !onReset) { router.replace('/(auth)/reset-password'); return; }
-    if (!user && !inAuth && !inJoin) { router.replace('/(auth)/welcome'); return; }
+    if (!user && !inAuth && !inJoin && !inLegal) { router.replace('/(auth)/welcome'); return; }
     if (user && inAuth && !onReset) {
       router.replace(!user.onboarding_completed ? '/onboarding' : '/(tabs)');
       return;
@@ -65,6 +66,7 @@ export default function RootLayout() {
           <Stack.Screen name="request-intro" options={{ title: 'Request introduction', presentation: 'modal' }} />
           <Stack.Screen name="edit-profile" options={{ title: 'Edit profile', presentation: 'modal' }} />
           <Stack.Screen name="privacy" options={{ title: 'Privacy' }} />
+          <Stack.Screen name="report" options={{ title: 'Report' }} />
           <Stack.Screen name="connect" options={{ title: 'Connect', presentation: 'modal' }} />
         </Stack>
       </AuthGate>

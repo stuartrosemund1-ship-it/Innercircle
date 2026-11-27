@@ -1,7 +1,7 @@
 import { isDemoMode } from '@/lib/config';
 import { demoApi, subscribeDemo } from '@/lib/demo/store';
 import { supabaseApi, subscribeSupabase } from '@/lib/supabase/api';
-import type { PrivacySettings, ProfessionalApplicationInput, ProfessionalRecommendation, Profile } from '@/types';
+import type { PrivacySettings, ProfessionalApplicationInput, ProfessionalRecommendation, Profile, ReportReason, ReportTargetType } from '@/types';
 
 const backend = isDemoMode ? demoApi : supabaseApi;
 
@@ -43,6 +43,11 @@ export const api = {
   sendMessage: (conversationId: string, senderId: string, body: string) => backend.sendMessage(conversationId, senderId, body),
   search: (userId: string, query: string, category?: string) => backend.search(userId, query, category),
   deleteAccount: (userId: string) => backend.deleteAccount(userId),
+  setDemoAdmin: (userId: string, enabled: boolean) => backend.setDemoAdmin(userId, enabled),
+  fileReport: (userId: string, input: { targetType: ReportTargetType; targetId: string; reason: ReportReason; details: string | null }) => backend.fileReport(userId, input),
+  adminDecideApplication: (userId: string, professionalId: string, decision: 'approved' | 'rejected', reason: string | null) => backend.adminDecideApplication(userId, professionalId, decision, reason),
+  adminSetVerified: (userId: string, professionalId: string, verified: boolean) => backend.adminSetVerified(userId, professionalId, verified),
+  adminResolveReport: (userId: string, reportId: string, status: 'resolved' | 'dismissed', note: string | null) => backend.adminResolveReport(userId, reportId, status, note),
   loadSampleNetwork: (currentUserId: string) => backend.loadSampleNetwork(currentUserId),
   getState: () => backend.getState(),
   resetDemo: () => backend.resetDemo(),

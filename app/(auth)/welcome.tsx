@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { Screen } from '@/components/ui/Screen';
@@ -22,6 +22,11 @@ export default function WelcomeScreen() {
       <View style={styles.actions}>
         <Button title="Create account" onPress={() => router.push('/(auth)/sign-up')} />
         <Button title="Sign in" variant="secondary" onPress={() => router.push('/(auth)/sign-in')} style={{ marginTop: spacing.sm }} />
+        <View style={styles.legal}>
+          <Pressable onPress={() => router.push('/legal/terms')}><Text style={styles.legalLink}>Terms of Use</Text></Pressable>
+          <Text style={styles.legalLink}> · </Text>
+          <Pressable onPress={() => router.push('/legal/privacy-policy')}><Text style={styles.legalLink}>Privacy Policy</Text></Pressable>
+        </View>
       </View>
     </Screen>
   );
@@ -35,4 +40,6 @@ const styles = StyleSheet.create({
   body: { ...typography.body, color: colors.text.secondary },
   demoNote: { ...typography.caption, color: colors.demo.bannerText, backgroundColor: colors.demo.banner, padding: spacing.sm, borderRadius: 8, overflow: 'hidden' },
   actions: { marginTop: 'auto' },
+  legal: { flexDirection: 'row', justifyContent: 'center', marginTop: spacing.md },
+  legalLink: { ...typography.caption, color: colors.text.link },
 });

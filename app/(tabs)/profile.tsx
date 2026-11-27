@@ -39,6 +39,9 @@ export default function ProfileScreen() {
       </View>
       <Button title="Edit profile" onPress={() => router.push('/edit-profile')} />
       <Button title="Privacy controls" variant="secondary" onPress={() => router.push('/privacy')} style={styles.gap} />
+      <Button title="Privacy Policy" variant="ghost" onPress={() => router.push('/legal/privacy-policy')} style={styles.gap} />
+      <Button title="Terms of Use" variant="ghost" onPress={() => router.push('/legal/terms')} style={styles.gap} />
+      {user.is_admin ? <Button title="Admin dashboard" onPress={() => router.push('/admin')} style={styles.gap} /> : null}
       <Button title="Invite a friend" variant="teal" onPress={() => router.push('/invite')} style={styles.gap} />
       <Button title="Apply as a professional" onPress={() => router.push('/add-professional')} style={styles.gap} />
       {applications.length > 0 ? (
@@ -59,7 +62,11 @@ export default function ProfileScreen() {
           <Button title="Load development sample network" variant="secondary" onPress={async () => {
             await api.loadSampleNetwork(user.id);
             await refresh();
-            Alert.alert('Sample network loaded', 'Sarah and James are now in your local demo circle.');
+            Alert.alert('Sample network loaded', 'Sarah and James are now in your local demo circle. Turn on admin view to review Priya Nair and the open report.');
+          }} style={styles.gap} />
+          <Button title={user.is_admin ? 'Turn off admin view' : 'Turn on admin view'} variant="secondary" onPress={async () => {
+            await api.setDemoAdmin(user.id, !user.is_admin);
+            await refresh();
           }} style={styles.gap} />
           <Button title="Reset local demo data" variant="danger" onPress={() => {
             Alert.alert('Reset demo data?', 'This clears local development data on this device.', [
@@ -69,6 +76,15 @@ export default function ProfileScreen() {
           }} style={styles.gap} />
         </View>
       ) : null}
+      <Button title="Delete account" variant="danger" onPress={() => {
+        Alert.alert('Delete your account?', 'This removes your profile, connections, and professional applications from this device. It cannot be undone.', [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Delete account', style: 'destructive', onPress: async () => {
+            try { await api.deleteAccount(user.id); await signOut(); }
+            catch (error) { Alert.alert('Could not delete', error instanceof Error ? error.message : 'Try again'); }
+          } },
+        ]);
+      }} style={styles.gap} />
       <Button title="Sign out" variant="ghost" onPress={() => signOut()} style={styles.gap} />
     </Screen>
   );

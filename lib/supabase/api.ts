@@ -6,12 +6,13 @@ import {
   DEFAULT_PRIVACY, type AppNotification, type Connection, type Conversation, type ConversationMember,
   type IntroductionRequest, type Invitation, type Message, type NotificationType, type PersonalTrust,
   type PriceCurrency, type PricingUnit, type PrivacySettings, type Professional, type ProfessionalApplicationInput,
-  type ProfessionalRecommendation, type ProfessionalReference, type Profile,
+  type ProfessionalRecommendation, type ProfessionalReference, type Profile, type Report, type ReportReason, type ReportTargetType,
 } from '@/types';
 
-const PROFILE_COLUMNS = 'id, email, full_name, avatar_url, bio, city, interests, privacy, onboarding_completed, created_at';
+const PROFILE_COLUMNS = 'id, email, full_name, avatar_url, bio, city, interests, privacy, onboarding_completed, is_admin, terms_accepted_at, created_at';
 const PROFESSIONAL_COLUMNS = 'id, owner_user_id, created_by, name, category, bio, location, experience, availability, avatar_url, years_experience, licence_number, licence_issuer, service_area, photo_id_path, insurance_doc_path, qualification_doc_path, conduct_accepted_at, application_status, application_rejection_reason, application_submitted_at, application_reviewed_at, price_min, price_max, currency, pricing_unit, pricing_notes, verification_status, is_verified, verified_at, created_at';
 const REFERENCE_COLUMNS = 'id, professional_id, applicant_id, referee_id, status, note, created_at, responded_at';
+const REPORT_COLUMNS = 'id, reporter_id, target_type, target_profile_id, target_professional_id, reason, details, status, resolution_note, created_at, resolved_at, resolved_by';
 const CONTACT_COLUMNS = 'professional_id, contact_email, contact_phone, website';
 
 export interface AppSnapshot {
@@ -27,6 +28,7 @@ export interface AppSnapshot {
   messages: Message[];
   invitations: Invitation[];
   notifications: AppNotification[];
+  reports: Report[];
 }
 
 const listeners = new Set<() => void>();
@@ -79,6 +81,8 @@ function mapProfile(row: Profile): Profile {
     interests: row.interests ?? [],
     privacy: { ...DEFAULT_PRIVACY, ...(row.privacy ?? {}) } as PrivacySettings,
     onboarding_completed: Boolean(row.onboarding_completed),
+    is_admin: Boolean(row.is_admin),
+    terms_accepted_at: row.terms_accepted_at ?? null,
     created_at: row.created_at,
   };
 }
@@ -162,7 +166,7 @@ async function getProfile(userId: string): Promise<Profile | null> {
 async function loadSnapshot(): Promise<AppSnapshot> {
   const [
     profiles, connections, professionals, references, recommendations, personalTrusts, introductions,
-    conversations, conversationMembers, messages, invitations, notifications,
+    conversations, conversationMembers, messages, invitations, notifications, reports,
   ] = await Promise.all([
     db().from('profiles').select(PROFILE_COLUMNS),
     db().from('connections').select('id, requester_id, recipient_id, status, created_at, updated_at'),
@@ -176,8 +180,9 @@ async function loadSnapshot(): Promise<AppSnapshot> {
     db().from('messages').select('id, conversation_id, sender_id, body, created_at').order('created_at', { ascending: true }),
     db().from('invitations').select('id, inviter_id, recipient_email, status, expires_at, created_at'),
     db().from('notifications').select('id, recipient_id, type, title, body, reference_id, read_at, created_at').order('created_at', { ascending: false }),
+    db().from('reports').select(REPORT_COLUMNS).order('created_at', { ascending: false }),
   ]);
-  for (const result of [profiles, connections, references, recommendations, personalTrusts, introductions, conversations, conversationMembers, messages, invitations, notifications]) {
+  for (const result of [profiles, connections, references, recommendations, personalTrusts, introductions, conversations, conversationMembers, messages, invitations, notifications, reports]) {
     fail(result.error);
   }
   return {
@@ -193,6 +198,7 @@ async function loadSnapshot(): Promise<AppSnapshot> {
     messages: (messages.data ?? []) as Message[],
     invitations: (invitations.data ?? []) as Invitation[],
     notifications: (notifications.data ?? []) as AppNotification[],
+    reports: (reports.data ?? []) as Report[],
   };
 }
 
@@ -218,7 +224,7 @@ export const supabaseApi = {
     const { data, error } = await db().auth.signUp({
       email: email.trim().toLowerCase(),
       password,
-      options: { data: { full_name: fullName.trim() || 'New member' } },
+      options: { data: { full_name: fullName.trim() || 'New member', terms_accepted_at: new Date().toISOString() } },
     });
     fail(error);
     if (!data.session || !data.user) {
@@ -257,6 +263,7 @@ export const supabaseApi = {
     if (patch.interests !== undefined) next.interests = patch.interests;
     if (patch.privacy !== undefined) next.privacy = patch.privacy;
     if (patch.onboarding_completed !== undefined) next.onboarding_completed = patch.onboarding_completed;
+    if (patch.terms_accepted_at !== undefined) next.terms_accepted_at = patch.terms_accepted_at;
     const { data, error } = await db().from('profiles').update(next).eq('id', userId).select(PROFILE_COLUMNS).single();
     fail(error);
     emit();
@@ -282,6 +289,8 @@ export const supabaseApi = {
       interests: [],
       privacy: { ...DEFAULT_PRIVACY },
       onboarding_completed: false,
+      is_admin: false,
+      terms_accepted_at: null,
       created_at: new Date(0).toISOString(),
     });
   },
@@ -650,6 +659,53 @@ export const supabaseApi = {
       return professional.name.toLowerCase().includes(q);
     });
     return { people, networkProfessionals, generalProfessionals };
+  },
+  async setDemoAdmin(_userId: string, _enabled: boolean) {
+    throw new Error('Admin access is granted in the database, not in the app.');
+  },
+  async fileReport(userId: string, input: { targetType: ReportTargetType; targetId: string; reason: ReportReason; details: string | null }) {
+    await assertSelf(userId);
+    const { data, error } = await db().from('reports').insert({
+      reporter_id: userId,
+      target_type: input.targetType,
+      target_profile_id: input.targetType === 'person' ? input.targetId : null,
+      target_professional_id: input.targetType === 'professional' ? input.targetId : null,
+      reason: input.reason,
+      details: input.details?.trim() || null,
+      status: 'open',
+    }).select(REPORT_COLUMNS).single();
+    fail(error);
+    emit();
+    return data as Report;
+  },
+  async adminDecideApplication(userId: string, professionalId: string, decision: 'approved' | 'rejected', reason: string | null) {
+    await assertSelf(userId);
+    const { error } = await db().rpc('admin_decide_application', {
+      p_professional_id: professionalId,
+      p_decision: decision,
+      p_reason: reason,
+    });
+    fail(error);
+    emit();
+  },
+  async adminSetVerified(userId: string, professionalId: string, verified: boolean) {
+    await assertSelf(userId);
+    const { error } = await db().rpc('admin_set_verified', {
+      p_professional_id: professionalId,
+      p_verified: verified,
+    });
+    fail(error);
+    emit();
+  },
+  async adminResolveReport(userId: string, reportId: string, status: 'resolved' | 'dismissed', note: string | null) {
+    await assertSelf(userId);
+    const { error } = await db().rpc('admin_resolve_report', {
+      p_report_id: reportId,
+      p_status: status,
+      p_note: note,
+    });
+    fail(error);
+    emit();
   },
   async deleteAccount(userId: string) {
     await assertSelf(userId);

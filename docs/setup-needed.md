@@ -16,9 +16,15 @@ To do it by hand, copy the Project URL and the publishable (anon) key from Proje
 
 ## 2. Apply the schema
 
-The hosted project is `zfgrlqheihcvmjfkpjet` (`https://zfgrlqheihcvmjfkpjet.supabase.co`). `001_lifecircle_schema.sql` is already applied there. Apply `002_professional_verified.sql` and `003_professional_application.sql` in the SQL editor when you are ready. Do not expect 003 to already be on the hosted database. Only `service_role`, `postgres`, or `supabase_admin` can approve an application or set `is_verified`.
+The hosted project is `zfgrlqheihcvmjfkpjet` (`https://zfgrlqheihcvmjfkpjet.supabase.co`). `001_lifecircle_schema.sql` is already applied there. Apply `002_professional_verified.sql`, `003_professional_application.sql`, and `004_admin_and_legal.sql` in the SQL editor when you are ready. Do not expect 003 or 004 to already be on the hosted database. Only `service_role`, `postgres`, or `supabase_admin` can set `profiles.is_admin`. After 004, make a real member an admin with:
 
-For a new project, run the three files in order in the Supabase SQL editor.
+```sql
+update public.profiles
+set is_admin = true
+where email = 'person@example.com';
+```
+
+For a new project, run the four files in order in the Supabase SQL editor.
 
 Or, with the CLI and Docker:
 

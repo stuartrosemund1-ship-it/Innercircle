@@ -44,6 +44,7 @@ export default function PersonDetailScreen() {
         <Text style={styles.name}>{profile.full_name}</Text>
         <Text style={styles.meta}>In your circle</Text>
       </View>
+      {profile.id !== user.id ? <Button title="Report this person" variant="secondary" onPress={() => router.push({ pathname: '/report', params: { type: 'person', id: profile.id } })} /> : null}
       <Text style={styles.section}>Professionals they recommend</Text>
       {recs.length === 0 ? <Text style={styles.muted}>No recommendations visible to you.</Text> : recs.map(({ rec, pro }) => (
         <Pressable key={rec.id} style={styles.card} onPress={() => router.push(`/professional/${pro.id}`)}>
