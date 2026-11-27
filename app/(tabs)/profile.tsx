@@ -39,6 +39,7 @@ export default function ProfileScreen() {
       </View>
       <Button title="Edit profile" onPress={() => router.push('/edit-profile')} />
       <Button title="Privacy controls" variant="secondary" onPress={() => router.push('/privacy')} style={styles.gap} />
+      <Button title="Notification preferences" variant="secondary" onPress={() => router.push('/notification-settings')} style={styles.gap} />
       <Button title="Privacy Policy" variant="ghost" onPress={() => router.push('/legal/privacy-policy')} style={styles.gap} />
       <Button title="Terms of Use" variant="ghost" onPress={() => router.push('/legal/terms')} style={styles.gap} />
       {user.is_admin ? <Button title="Admin dashboard" onPress={() => router.push('/admin')} style={styles.gap} /> : null}

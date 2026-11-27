@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Alert, StyleSheet, Text, View, Linking } from 'react-native';
+import { TextField } from '@/components/ui/TextField';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Screen } from '@/components/ui/Screen';
 import { Avatar } from '@/components/ui/Avatar';
@@ -7,12 +8,15 @@ import { Button } from '@/components/ui/Button';
 import { TrustBadge } from '@/components/ui/TrustBadge';
 import { VerifiedBadge } from '@/components/ui/VerifiedBadge';
 import { PriceRange } from '@/components/ui/PriceRange';
+import { StarRating } from '@/components/ui/StarRating';
+import { Logo } from '@/components/brand/Logo';
+import { averageRating } from '@/lib/engagement';
 import { LoadingState } from '@/components/ui/LoadingState';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useAuth } from '@/contexts/AuthContext';
 import { api } from '@/lib/api';
 import { applicationStatusLabel, isApprovedProfessional, isVerifiedProfessional } from '@/lib/application';
-import type { Professional, ProfessionalReference, Profile, TrustLabel, IntroductionRequest } from '@/types';
+import type { Professional, ProfessionalReference, ProfessionalReview, Profile, ServiceRequest, TrustLabel, IntroductionRequest } from '@/types';
 import { colors, radii, spacing, typography } from '@/constants/theme';
 
 export default function ProfessionalDetailScreen() {
@@ -26,6 +30,10 @@ export default function ProfessionalDetailScreen() {
   const [contactVisible, setContactVisible] = useState(false);
   const [references, setReferences] = useState<ProfessionalReference[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [reviews, setReviews] = useState<ProfessionalReview[]>([]);
+  const [requests, setRequests] = useState<ServiceRequest[]>([]);
+  const [circleIds, setCircleIds] = useState<string[]>([]);
+  const [reply, setReply] = useState('');
   const [loading, setLoading] = useState(true);
   useEffect(() => {
     if (!user || !id) return;
@@ -46,6 +54,10 @@ export default function ProfessionalDetailScreen() {
       setContactVisible(Boolean(acceptedIntro || professional?.created_by === user.id || professional?.owner_user_id === user.id));
       setReferences(state.references.filter((reference) => reference.professional_id === id));
       setProfiles(state.profiles);
+      setReviews(state.reviews.filter((review) => review.professional_id === id));
+      setRequests(state.serviceRequests.filter((request) => request.professional_id === id));
+      const connected = state.connections.filter((connection) => connection.status === 'accepted' && (connection.requester_id === user.id || connection.recipient_id === user.id)).map((connection) => connection.requester_id === user.id ? connection.recipient_id : connection.requester_id);
+      setCircleIds(connected);
       setLoading(false);
     })();
   }, [id, user]);
@@ -57,8 +69,17 @@ export default function ProfessionalDetailScreen() {
     return <Screen><EmptyState title="Not available yet" description="This professional is not approved, so they are hidden from Discover." /></Screen>;
   }
   const verified = isVerifiedProfessional(pro);
+  const summary = averageRating(reviews);
+  const circleReviews = reviews.filter((review) => circleIds.includes(review.author_id));
+  const canReview = requests.some((request) => request.member_id === user.id && request.status === 'completed') || Boolean(intro);
+  const alreadyReviewed = reviews.some((review) => review.author_id === user.id);
+  const memberSince = new Date(pro.created_at).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
   return (
     <Screen scroll>
+      <View style={styles.cover}>
+        <Logo size={48} light />
+        <Text style={styles.coverLabel}>LifeCircle</Text>
+      </View>
       <View style={styles.header}>
         <Avatar name={pro.name} uri={pro.avatar_url} size={80} />
         <View style={styles.nameRow}>
@@ -68,6 +89,9 @@ export default function ProfessionalDetailScreen() {
         <Text style={styles.meta}>{pro.category}</Text>
         {pro.location ? <Text style={styles.meta}>{pro.location}</Text> : null}
         <PriceRange professional={pro} />
+        {summary ? <StarRating value={summary.average} count={summary.count} /> : <Text style={styles.meta}>No reviews yet</Text>}
+        <Text style={styles.meta}>Member since {memberSince}</Text>
+        {pro.typical_response_time ? <Text style={styles.meta}>{pro.typical_response_time}</Text> : null}
         {pro.pricing_notes ? <Text style={styles.meta}>{pro.pricing_notes}</Text> : null}
         {isApprovedProfessional(pro) ? <TrustBadge label={label} /> : null}
       </View>
@@ -85,6 +109,53 @@ export default function ProfessionalDetailScreen() {
           }} /> : null}
         </View>
       ) : null}
+      {isApprovedProfessional(pro) && !isApplicant ? (
+        <Button title="Request a quote" onPress={() => router.push({ pathname: '/request-service', params: { professionalId: pro.id } })} style={{ marginBottom: spacing.sm }} />
+      ) : null}
+      {pro.qualifications.length > 0 ? (
+        <View style={styles.badges}>
+          {pro.qualifications.map((item) => <Text key={item} style={styles.badge}>{item}</Text>)}
+        </View>
+      ) : null}
+      {pro.portfolio.length > 0 ? (
+        <View style={styles.card}>
+          <Text style={styles.label}>Past work</Text>
+          {pro.portfolio.map((item) => (
+            <View key={item.title} style={styles.work}>
+              <Text style={styles.body}>{item.title}</Text>
+              <Text style={styles.muted}>{item.caption}</Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
+      <View style={styles.card}>
+        <Text style={styles.label}>{circleReviews.length} {circleReviews.length === 1 ? 'person' : 'people'} in your circle used them</Text>
+        {circleReviews.length === 0 ? <Text style={styles.muted}>No one in your circle has reviewed them yet.</Text> : circleReviews.map((review) => (
+          <Text key={review.id} style={styles.body}>{profiles.find((profile) => profile.id === review.author_id)?.full_name ?? 'A connection'}</Text>
+        ))}
+      </View>
+      <View style={styles.card}>
+        <Text style={styles.label}>Reviews</Text>
+        {reviews.length === 0 ? <Text style={styles.muted}>Reviews appear after a completed booking or an accepted introduction.</Text> : reviews.map((review) => (
+          <View key={review.id} style={styles.work}>
+            <Text style={styles.body}>{profiles.find((profile) => profile.id === review.author_id)?.full_name ?? 'Member'} · {review.rating}/5</Text>
+            <Text style={styles.muted}>{review.body}</Text>
+            {review.owner_reply ? <Text style={styles.reply}>Reply: {review.owner_reply}</Text> : null}
+          </View>
+        ))}
+        {canReview && !alreadyReviewed ? <Button title="Leave a review" variant="secondary" onPress={() => router.push({ pathname: '/review', params: { professionalId: pro.id } })} /> : null}
+        {isApplicant ? (
+          <>
+            <TextField label="Reply to the latest review" value={reply} onChangeText={setReply} />
+            <Button title="Post reply" variant="secondary" onPress={async () => {
+              const target = reviews.find((review) => !review.owner_reply) ?? reviews[0];
+              if (!target) { Alert.alert('No review yet', 'Replies appear once someone has reviewed you.'); return; }
+              try { await api.replyToReview(user.id, target.id, reply); setReply(''); const state = await api.getState(); setReviews(state.reviews.filter((review) => review.professional_id === pro.id)); }
+              catch (error) { Alert.alert('Could not reply', error instanceof Error ? error.message : 'Try again'); }
+            }} />
+          </>
+        ) : null}
+      </View>
       {pro.bio ? <Text style={styles.bio}>{pro.bio}</Text> : null}
       <View style={styles.card}>
         <Text style={styles.label}>Price</Text>
@@ -135,7 +206,13 @@ export default function ProfessionalDetailScreen() {
   );
 }
 const styles = StyleSheet.create({
+  cover: { backgroundColor: colors.brand.purple, borderRadius: radii.lg, paddingVertical: spacing.lg, alignItems: 'center', marginBottom: spacing.md, gap: spacing.xs },
+  coverLabel: { ...typography.label, color: colors.text.inverse },
   header: { alignItems: 'center', gap: 6, marginBottom: spacing.md },
+  badges: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.sm },
+  badge: { ...typography.caption, color: colors.brand.purpleDeep, backgroundColor: colors.brand.purpleSoft, paddingHorizontal: 10, paddingVertical: 6, borderRadius: radii.full, overflow: 'hidden' },
+  work: { gap: 2, marginBottom: spacing.sm },
+  reply: { ...typography.caption, color: colors.text.primary, marginTop: 4 },
   nameRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap', gap: spacing.sm },
   name: { ...typography.h2, color: colors.text.primary },
   meta: { ...typography.caption, color: colors.text.secondary },

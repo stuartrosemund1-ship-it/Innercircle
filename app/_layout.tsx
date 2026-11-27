@@ -67,6 +67,9 @@ export default function RootLayout() {
           <Stack.Screen name="edit-profile" options={{ title: 'Edit profile', presentation: 'modal' }} />
           <Stack.Screen name="privacy" options={{ title: 'Privacy' }} />
           <Stack.Screen name="report" options={{ title: 'Report' }} />
+          <Stack.Screen name="request-service" options={{ title: 'Request a quote', presentation: 'modal' }} />
+          <Stack.Screen name="review" options={{ title: 'Leave a review', presentation: 'modal' }} />
+          <Stack.Screen name="notification-settings" options={{ title: 'Notifications' }} />
           <Stack.Screen name="connect" options={{ title: 'Connect', presentation: 'modal' }} />
         </Stack>
       </AuthGate>

@@ -16,7 +16,7 @@ To do it by hand, copy the Project URL and the publishable (anon) key from Proje
 
 ## 2. Apply the schema
 
-The hosted project is `zfgrlqheihcvmjfkpjet` (`https://zfgrlqheihcvmjfkpjet.supabase.co`). `001_lifecircle_schema.sql` is already applied there. Apply `002_professional_verified.sql`, `003_professional_application.sql`, and `004_admin_and_legal.sql` in the SQL editor when you are ready. Do not expect 003 or 004 to already be on the hosted database. Only `service_role`, `postgres`, or `supabase_admin` can set `profiles.is_admin`. After 004, make a real member an admin with:
+The hosted project is `zfgrlqheihcvmjfkpjet` (`https://zfgrlqheihcvmjfkpjet.supabase.co`). `001_lifecircle_schema.sql` is already applied there. Apply `002` through `005` in order in the SQL editor when you are ready. Do not expect 003, 004, or 005 to already be on the hosted database. Only `service_role`, `postgres`, or `supabase_admin` can set `profiles.is_admin`. After 004, make a real member an admin with:
 
 ```sql
 update public.profiles

@@ -6,7 +6,9 @@ export type InvitationStatus = 'pending' | 'accepted' | 'expired' | 'revoked';
 export type NotificationType =
   | 'connection_request' | 'connection_accepted' | 'recommendation_shared'
   | 'introduction_request' | 'introduction_accepted' | 'introduction_declined'
-  | 'message' | 'invitation_accepted' | 'reference_request';
+  | 'message' | 'invitation_accepted' | 'reference_request'
+  | 'service_request' | 'service_request_update' | 'application_update' | 'report_resolved';
+export type ServiceRequestStatus = 'pending' | 'accepted' | 'declined' | 'proposed' | 'completed' | 'cancelled';
 export type ApplicationStatus = 'draft' | 'pending' | 'approved' | 'rejected';
 export type PricingUnit = 'per_hour' | 'per_session' | 'per_project' | 'fixed';
 export type ReferenceStatus = 'requested' | 'confirmed' | 'declined';
@@ -18,6 +20,14 @@ export type ProfessionalCategory =
   | 'Mechanics and Automotive' | 'Childcare and Family Services' | 'Pet Care'
   | 'Technology Support' | 'Other Services';
 export type TrustLabel = 'recommended' | 'introduced' | 'personally_trusted';
+export interface NotificationPreferences {
+  requests: boolean;
+  introductions: boolean;
+  references: boolean;
+  applications: boolean;
+  reports: boolean;
+}
+export interface PortfolioItem { title: string; caption: string; }
 export interface PrivacySettings {
   profileVisibility: 'connections' | 'circle' | 'private';
   showNameOnRecommendations: boolean;
@@ -30,7 +40,8 @@ export type ReportStatus = 'open' | 'resolved' | 'dismissed';
 export interface Profile {
   id: string; email: string; full_name: string; avatar_url: string | null;
   bio: string | null; city: string | null; interests: string[];
-  privacy: PrivacySettings; onboarding_completed: boolean; is_admin: boolean;
+  privacy: PrivacySettings; notification_preferences: NotificationPreferences;
+  onboarding_completed: boolean; is_admin: boolean;
   terms_accepted_at: string | null; created_at: string;
 }
 export interface Report {
@@ -56,6 +67,7 @@ export interface Professional {
   application_submitted_at: string | null; application_reviewed_at: string | null;
   price_min: number | null; price_max: number | null; currency: PriceCurrency;
   pricing_unit: PricingUnit | null; pricing_notes: string | null;
+  qualifications: string[]; portfolio: PortfolioItem[]; typical_response_time: string | null;
   verification_status: 'unverified' | 'pending' | 'verified';
   is_verified: boolean; verified_at: string | null; created_at: string;
 }
@@ -97,6 +109,18 @@ export interface AppNotification {
   id: string; recipient_id: string; type: NotificationType; title: string; body: string;
   reference_id: string | null; read_at: string | null; created_at: string;
 }
+export interface ServiceRequest {
+  id: string; professional_id: string; member_id: string; service_needed: string;
+  preferred_dates: string; location: string; budget: number | null; notes: string | null;
+  status: ServiceRequestStatus; proposed_time: string | null; created_at: string; updated_at: string;
+}
+export interface ProfessionalReview {
+  id: string; professional_id: string; author_id: string; rating: number; body: string;
+  owner_reply: string | null; replied_at: string | null; created_at: string;
+}
+export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
+  requests: true, introductions: true, references: true, applications: true, reports: true,
+};
 export const DEFAULT_PRIVACY: PrivacySettings = {
   profileVisibility: 'connections', showNameOnRecommendations: true,
   acceptIntroductions: true, showProfessionalRelationships: 'connections',

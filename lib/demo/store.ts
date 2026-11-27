@@ -1,16 +1,17 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
-  AppNotification, Connection, Conversation, ConversationMember, DEFAULT_PRIVACY,
+  AppNotification, Connection, Conversation, ConversationMember, DEFAULT_NOTIFICATION_PREFERENCES, DEFAULT_PRIVACY,
   IntroductionRequest, Invitation, Message, PersonalTrust, PrivacySettings,
-  Professional, ProfessionalApplicationInput, ProfessionalRecommendation, ProfessionalReference, Profile, Report, ReportReason, ReportTargetType,
+  Professional, ProfessionalApplicationInput, ProfessionalRecommendation, ProfessionalReference, ProfessionalReview, Profile, Report, ReportReason, ReportTargetType, ServiceRequest,
 } from '@/types';
 import { applicationIssues, assertPriceOrder, isApprovedProfessional } from '@/lib/application';
+import { allowsNotification, budgetFits, deliverExternalNotification } from '@/lib/engagement';
 import { createId, hashToken, nowIso } from '@/lib/id';
 
-const STORAGE_KEY = 'lifecircle.demo.v3';
+const STORAGE_KEY = 'lifecircle.demo.v4';
 
 export interface DemoState {
-  version: 3;
+  version: 4;
   environment: 'development-demo';
   currentUserId: string | null;
   sessionPasswordByEmail: Record<string, string>;
@@ -27,15 +28,17 @@ export interface DemoState {
   invitations: Invitation[];
   notifications: AppNotification[];
   reports: Report[];
+  serviceRequests: ServiceRequest[];
+  reviews: ProfessionalReview[];
   sampleDataLoaded: boolean;
 }
 
 function emptyState(): DemoState {
   return {
-    version: 3, environment: 'development-demo', currentUserId: null,
+    version: 4, environment: 'development-demo', currentUserId: null,
     sessionPasswordByEmail: {}, profiles: [], connections: [], professionals: [],
     references: [], recommendations: [], personalTrusts: [], introductions: [], conversations: [],
-    conversationMembers: [], messages: [],     invitations: [], notifications: [], reports: [],
+    conversationMembers: [], messages: [],     invitations: [], notifications: [], reports: [], serviceRequests: [], reviews: [],
     sampleDataLoaded: false,
   };
 }
@@ -54,9 +57,11 @@ export async function loadDemoState(): Promise<DemoState> {
     const raw = await AsyncStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as DemoState;
-      if (parsed.version === 3) {
+      if (parsed.version === 4) {
         parsed.references = parsed.references ?? [];
         parsed.reports = parsed.reports ?? [];
+        parsed.serviceRequests = parsed.serviceRequests ?? [];
+        parsed.reviews = parsed.reviews ?? [];
         memory = parsed;
         return memory;
       }
@@ -90,6 +95,10 @@ function areConnected(state: DemoState, a: string, b: string): boolean {
 }
 
 function pushNotification(state: DemoState, partial: Omit<AppNotification, 'id' | 'created_at' | 'read_at'>) {
+  const recipient = state.profiles.find((profile) => profile.id === partial.recipient_id);
+  const preferences = recipient?.notification_preferences ?? DEFAULT_NOTIFICATION_PREFERENCES;
+  if (!allowsNotification(preferences, partial.type)) return;
+  deliverExternalNotification(partial.type, partial.recipient_id);
   state.notifications.unshift({ id: createId('notif'), created_at: nowIso(), read_at: null, ...partial });
 }
 
@@ -107,7 +116,7 @@ export const demoApi = {
     const profile: Profile = {
       id: createId('user'), email: normalized, full_name: fullName.trim() || 'New member',
       avatar_url: null, bio: null, city: null, interests: [],       privacy: { ...DEFAULT_PRIVACY },
-      onboarding_completed: false, is_admin: false, terms_accepted_at: nowIso(), created_at: nowIso(),
+      onboarding_completed: false, is_admin: false, terms_accepted_at: nowIso(), notification_preferences: { ...DEFAULT_NOTIFICATION_PREFERENCES }, created_at: nowIso(),
     };
     state.profiles.push(profile);
     state.sessionPasswordByEmail[normalized] = password;
@@ -216,8 +225,99 @@ export const demoApi = {
     report.resolution_note = note?.trim() || null;
     report.resolved_at = nowIso();
     report.resolved_by = userId;
+    pushNotification(state, {
+      recipient_id: report.reporter_id,
+      type: 'report_resolved',
+      title: status === 'resolved' ? 'Report resolved' : 'Report dismissed',
+      body: 'An admin closed a report you sent.',
+      reference_id: report.id,
+    });
     await save(state);
     return report;
+  },
+  async createServiceRequest(userId: string, input: { professionalId: string; serviceNeeded: string; preferredDates: string; location: string; budget: number | null; notes: string | null }) {
+    const state = await loadDemoState();
+    const professional = state.professionals.find((item) => item.id === input.professionalId);
+    if (!professional || !isApprovedProfessional(professional)) throw new Error('You can only request a quote from an approved professional.');
+    if (!input.serviceNeeded.trim() || !input.preferredDates.trim() || !input.location.trim()) throw new Error('Service, dates, and location are required.');
+    if (input.budget == null || !budgetFits(input.budget, professional.price_min, professional.price_max)) throw new Error('Choose a budget inside the published price range.');
+    const request: ServiceRequest = {
+      id: createId('req'), professional_id: professional.id, member_id: userId,
+      service_needed: input.serviceNeeded.trim(), preferred_dates: input.preferredDates.trim(),
+      location: input.location.trim(), budget: input.budget, notes: input.notes?.trim() || null,
+      status: 'pending', proposed_time: null, created_at: nowIso(), updated_at: nowIso(),
+    };
+    state.serviceRequests.push(request);
+    const member = state.profiles.find((profile) => profile.id === userId);
+    const owner = professional.owner_user_id ?? professional.created_by;
+    if (owner && owner !== userId) {
+      pushNotification(state, { recipient_id: owner, type: 'service_request', title: 'New quote request', body: `${member?.full_name ?? 'A member'} asked ${professional.name} for a quote.`, reference_id: request.id });
+    }
+    await save(state);
+    return request;
+  },
+  async respondServiceRequest(userId: string, requestId: string, action: 'accepted' | 'declined' | 'proposed' | 'completed' | 'cancelled', proposedTime: string | null = null) {
+    const state = await loadDemoState();
+    const request = state.serviceRequests.find((item) => item.id === requestId);
+    if (!request) throw new Error('Request not found');
+    const professional = state.professionals.find((item) => item.id === request.professional_id);
+    if (!professional) throw new Error('Professional not found');
+    const owns = professional.created_by === userId || professional.owner_user_id === userId;
+    const isMember = request.member_id === userId;
+    if (action === 'cancelled') {
+      if (!isMember || request.status !== 'pending') throw new Error('Only a waiting request can be cancelled.');
+    } else if (action === 'completed') {
+      if (!(owns || isMember) || (request.status !== 'accepted' && request.status !== 'proposed')) throw new Error('Complete the request after it has been accepted.');
+    } else {
+      if (!owns || request.status !== 'pending') throw new Error('Only the professional can reply to a new request.');
+      if (action === 'proposed' && !proposedTime?.trim()) throw new Error('Propose a time.');
+    }
+    request.status = action;
+    request.proposed_time = action === 'proposed' ? proposedTime!.trim() : request.proposed_time;
+    request.updated_at = nowIso();
+    const actor = state.profiles.find((profile) => profile.id === userId);
+    const recipient = owns ? request.member_id : (professional.owner_user_id ?? professional.created_by);
+    if (recipient && recipient !== userId) {
+      pushNotification(state, {
+        recipient_id: recipient,
+        type: 'service_request_update',
+        title: 'Quote request updated',
+        body: `${actor?.full_name ?? 'Someone'} marked the request for ${professional.name} as ${action === 'proposed' ? `proposed: ${request.proposed_time}` : action}.`,
+        reference_id: request.id,
+      });
+    }
+    await save(state);
+    return request;
+  },
+  async createReview(userId: string, professionalId: string, rating: number, body: string) {
+    const state = await loadDemoState();
+    const professional = state.professionals.find((item) => item.id === professionalId);
+    if (!professional) throw new Error('Professional not found');
+    if (rating < 1 || rating > 5 || !Number.isInteger(rating)) throw new Error('Choose a rating from 1 to 5.');
+    if (!body.trim()) throw new Error('Write a short review.');
+    if (state.reviews.some((review) => review.author_id === userId && review.professional_id === professionalId)) throw new Error('You have already reviewed this professional.');
+    const completed = state.serviceRequests.some((request) => request.member_id === userId && request.professional_id === professionalId && request.status === 'completed');
+    const introduced = state.introductions.some((intro) => intro.requester_id === userId && intro.professional_id === professionalId && intro.status === 'accepted');
+    if (!completed && !introduced) throw new Error('A completed booking or an accepted introduction is required before you can review.');
+    const review: ProfessionalReview = {
+      id: createId('review'), professional_id: professionalId, author_id: userId, rating, body: body.trim(),
+      owner_reply: null, replied_at: null, created_at: nowIso(),
+    };
+    state.reviews.push(review);
+    await save(state);
+    return review;
+  },
+  async replyToReview(userId: string, reviewId: string, reply: string) {
+    const state = await loadDemoState();
+    const review = state.reviews.find((item) => item.id === reviewId);
+    if (!review) throw new Error('Review not found');
+    const professional = state.professionals.find((item) => item.id === review.professional_id);
+    if (!professional || (professional.created_by !== userId && professional.owner_user_id !== userId)) throw new Error('Only the professional can reply.');
+    if (!reply.trim()) throw new Error('Write a reply.');
+    review.owner_reply = reply.trim();
+    review.replied_at = nowIso();
+    await save(state);
+    return review;
   },
   async listConnections(userId: string) {
     const state = await loadDemoState();
@@ -302,6 +402,7 @@ export const demoApi = {
       conduct_accepted_at: input.conduct_accepted ? now : null,
       application_status: 'draft', application_rejection_reason: null,
       application_submitted_at: null, application_reviewed_at: null,
+      qualifications: [], portfolio: [], typical_response_time: null,
       price_min: input.price_min, price_max: input.price_max, currency: input.currency,
       pricing_unit: input.pricing_unit, pricing_notes: input.pricing_notes?.trim() || null,
       verification_status: 'unverified', is_verified: false, verified_at: null, created_at: now,
@@ -573,14 +674,16 @@ export const demoApi = {
     state.reports = state.reports.filter((report) => report.reporter_id !== userId);
     state.professionals = state.professionals.filter((professional) => professional.created_by !== userId && professional.owner_user_id !== userId);
     state.messages = state.messages.filter((message) => message.sender_id !== userId);
+    state.serviceRequests = state.serviceRequests.filter((request) => request.member_id !== userId);
+    state.reviews = state.reviews.filter((review) => review.author_id !== userId);
     if (state.currentUserId === userId) state.currentUserId = null;
     await save(state);
   },
   async loadSampleNetwork(currentUserId: string) {
     const state = await loadDemoState();
     if (state.sampleDataLoaded) return state;
-    const sarah: Profile = { id: createId('user'), email: 'sarah.demo@lifecircle.dev', full_name: 'Sarah Chen', avatar_url: null, bio: 'Friend and neighbour.', city: 'Bristol', interests: ['Fitness', 'Home'], privacy: { ...DEFAULT_PRIVACY }, onboarding_completed: true, is_admin: false, terms_accepted_at: nowIso(), created_at: nowIso() };
-    const james: Profile = { id: createId('user'), email: 'james.demo@lifecircle.dev', full_name: 'James Okonkwo', avatar_url: null, bio: 'Colleague with reliable recommendations.', city: 'Bristol', interests: ['Finance'], privacy: { ...DEFAULT_PRIVACY }, onboarding_completed: true, is_admin: false, terms_accepted_at: nowIso(), created_at: nowIso() };
+    const sarah: Profile = { id: createId('user'), email: 'sarah.demo@lifecircle.dev', full_name: 'Sarah Chen', avatar_url: null, bio: 'Friend and neighbour.', city: 'Bristol', interests: ['Fitness', 'Home'], privacy: { ...DEFAULT_PRIVACY }, notification_preferences: { ...DEFAULT_NOTIFICATION_PREFERENCES }, onboarding_completed: true, is_admin: false, terms_accepted_at: nowIso(), created_at: nowIso() };
+    const james: Profile = { id: createId('user'), email: 'james.demo@lifecircle.dev', full_name: 'James Okonkwo', avatar_url: null, bio: 'Colleague with reliable recommendations.', city: 'Bristol', interests: ['Finance'], privacy: { ...DEFAULT_PRIVACY }, notification_preferences: { ...DEFAULT_NOTIFICATION_PREFERENCES }, onboarding_completed: true, is_admin: false, terms_accepted_at: nowIso(), created_at: nowIso() };
     state.profiles.push(sarah, james);
     state.sessionPasswordByEmail[sarah.email] = 'demo-only';
     state.sessionPasswordByEmail[james.email] = 'demo-only';
@@ -598,6 +701,13 @@ export const demoApi = {
       qualification_doc_path: 'professionals/sample/qualification/alex-rivera.pdf', conduct_accepted_at: reviewedAt,
       application_status: 'approved', application_rejection_reason: null, application_submitted_at: reviewedAt, application_reviewed_at: reviewedAt,
       price_min: 40, price_max: 60, currency: 'GBP', pricing_unit: 'per_session', pricing_notes: 'First session includes a movement screen.',
+      qualifications: ['CIMSPA', 'Level 3 Personal Trainer', 'First aid'],
+      portfolio: [
+        { title: 'Strength block', caption: 'A twelve-week plan for a home gym in Bristol.' },
+        { title: 'Form check', caption: 'Squat and hinge review, with two follow-up sessions.' },
+        { title: 'Return to training', caption: 'A gentle restart after a desk-job back flare.' },
+      ],
+      typical_response_time: 'Usually replies within a day',
       verification_status: 'verified', is_verified: true, verified_at: reviewedAt, created_at: reviewedAt,
     };
     const morgan: Professional = {
@@ -609,6 +719,7 @@ export const demoApi = {
       qualification_doc_path: 'professionals/sample/qualification/morgan-ellis.pdf', conduct_accepted_at: reviewedAt,
       application_status: 'pending', application_rejection_reason: null, application_submitted_at: reviewedAt, application_reviewed_at: null,
       price_min: 80, price_max: 120, currency: 'GBP', pricing_unit: 'per_hour', pricing_notes: 'Call-out is included in the first hour.',
+      qualifications: ['NICEIC'], portfolio: [{ title: 'Kitchen rewire', caption: 'A full domestic rewire, finished in five days.' }], typical_response_time: 'Usually replies within two days',
       verification_status: 'unverified', is_verified: false, verified_at: null, created_at: reviewedAt,
     };
     const priya: Professional = {
@@ -620,6 +731,7 @@ export const demoApi = {
       qualification_doc_path: 'professionals/sample/qualification/priya-nair.pdf', conduct_accepted_at: reviewedAt,
       application_status: 'pending', application_rejection_reason: null, application_submitted_at: reviewedAt, application_reviewed_at: null,
       price_min: 55, price_max: 90, currency: 'GBP', pricing_unit: 'per_session', pricing_notes: 'A first meeting is charged at the lower rate.',
+      qualifications: ['ICAEW'], portfolio: [], typical_response_time: 'Usually replies within a day',
       verification_status: 'unverified', is_verified: false, verified_at: null, created_at: reviewedAt,
     };
     const sam: Professional = {
@@ -631,6 +743,7 @@ export const demoApi = {
       qualification_doc_path: null, conduct_accepted_at: reviewedAt,
       application_status: 'rejected', application_rejection_reason: 'The insurance document did not match the name on the application.', application_submitted_at: reviewedAt, application_reviewed_at: reviewedAt,
       price_min: 30, price_max: 45, currency: 'GBP', pricing_unit: 'per_hour', pricing_notes: null,
+      qualifications: [], portfolio: [], typical_response_time: null,
       verification_status: 'unverified', is_verified: false, verified_at: null, created_at: reviewedAt,
     };
     state.professionals.push(alex, morgan, priya, sam);
@@ -654,6 +767,19 @@ export const demoApi = {
       { id: createId('rec'), recommender_id: james.id, professional_id: morgan.id, note: 'Fixed our panel upgrade quickly.', visibility: 'connections', status: 'active', created_at: nowIso() },
     );
     state.personalTrusts.push({ id: createId('trust'), user_id: james.id, professional_id: morgan.id, source_introduction_id: null, created_at: nowIso() });
+    const completedSarah: ServiceRequest = { id: createId('req'), professional_id: alex.id, member_id: sarah.id, service_needed: 'Twelve-week strength plan', preferred_dates: 'March weekdays', location: 'Bristol', budget: 50, notes: 'Home gym, two sessions a week.', status: 'completed', proposed_time: null, created_at: reviewedAt, updated_at: reviewedAt };
+    const completedJames: ServiceRequest = { id: createId('req'), professional_id: alex.id, member_id: james.id, service_needed: 'Return to training', preferred_dates: 'April evenings', location: 'Bristol', budget: 60, notes: null, status: 'completed', proposed_time: null, created_at: reviewedAt, updated_at: reviewedAt };
+    const completedMine: ServiceRequest = { id: createId('req'), professional_id: alex.id, member_id: currentUserId, service_needed: 'Form check', preferred_dates: 'Last month', location: 'Bristol', budget: 45, notes: 'Squat and hinge.', status: 'completed', proposed_time: null, created_at: reviewedAt, updated_at: reviewedAt };
+    const pendingMine: ServiceRequest = { id: createId('req'), professional_id: alex.id, member_id: currentUserId, service_needed: 'Home strength plan', preferred_dates: 'Next two weeks, mornings', location: 'Bristol', budget: 50, notes: 'I have a completed form check and want a follow-up block.', status: 'pending', proposed_time: null, created_at: nowIso(), updated_at: nowIso() };
+    const incoming: ServiceRequest = { id: createId('req'), professional_id: morgan.id, member_id: sarah.id, service_needed: 'Kitchen lighting circuit', preferred_dates: 'A Thursday in the next fortnight', location: 'BS6', budget: 100, notes: 'Two ceiling spots and a new switch.', status: 'pending', proposed_time: null, created_at: nowIso(), updated_at: nowIso() };
+    state.serviceRequests.push(completedSarah, completedJames, completedMine, pendingMine, incoming);
+    state.reviews.push(
+      { id: createId('review'), professional_id: alex.id, author_id: sarah.id, rating: 5, body: 'Alex rebuilt my routine without burning me out. Clear, calm, and worth the fee.', owner_reply: null, replied_at: null, created_at: reviewedAt },
+      { id: createId('review'), professional_id: alex.id, author_id: james.id, rating: 4, body: 'Straight coaching and a fair price. I would book again for a form check.', owner_reply: 'Thank you, James. Glad the sessions helped.', replied_at: reviewedAt, created_at: reviewedAt },
+    );
+    pushNotification(state, { recipient_id: currentUserId, type: 'service_request', title: 'New quote request', body: 'Sarah Chen asked Morgan Ellis for a quote: kitchen lighting circuit.', reference_id: incoming.id });
+    pushNotification(state, { recipient_id: currentUserId, type: 'service_request_update', title: 'Quote request sent', body: 'Your quote request to Alex Rivera is waiting for a reply.', reference_id: pendingMine.id });
+    pushNotification(state, { recipient_id: currentUserId, type: 'reference_request', title: 'Reference still open', body: 'James Okonkwo has not yet confirmed the reference for Morgan Ellis.', reference_id: null });
     state.sampleDataLoaded = true;
     await save(state);
     return state;

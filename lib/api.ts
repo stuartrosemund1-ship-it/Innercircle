@@ -1,7 +1,7 @@
 import { isDemoMode } from '@/lib/config';
 import { demoApi, subscribeDemo } from '@/lib/demo/store';
 import { supabaseApi, subscribeSupabase } from '@/lib/supabase/api';
-import type { PrivacySettings, ProfessionalApplicationInput, ProfessionalRecommendation, Profile, ReportReason, ReportTargetType } from '@/types';
+import type { NotificationPreferences, PrivacySettings, ProfessionalApplicationInput, ProfessionalRecommendation, Profile, ReportReason, ReportTargetType } from '@/types';
 
 const backend = isDemoMode ? demoApi : supabaseApi;
 
@@ -48,6 +48,10 @@ export const api = {
   adminDecideApplication: (userId: string, professionalId: string, decision: 'approved' | 'rejected', reason: string | null) => backend.adminDecideApplication(userId, professionalId, decision, reason),
   adminSetVerified: (userId: string, professionalId: string, verified: boolean) => backend.adminSetVerified(userId, professionalId, verified),
   adminResolveReport: (userId: string, reportId: string, status: 'resolved' | 'dismissed', note: string | null) => backend.adminResolveReport(userId, reportId, status, note),
+  createServiceRequest: (userId: string, input: { professionalId: string; serviceNeeded: string; preferredDates: string; location: string; budget: number | null; notes: string | null }) => backend.createServiceRequest(userId, input),
+  respondServiceRequest: (userId: string, requestId: string, action: 'accepted' | 'declined' | 'proposed' | 'completed' | 'cancelled', proposedTime?: string | null) => backend.respondServiceRequest(userId, requestId, action, proposedTime ?? null),
+  createReview: (userId: string, professionalId: string, rating: number, body: string) => backend.createReview(userId, professionalId, rating, body),
+  replyToReview: (userId: string, reviewId: string, reply: string) => backend.replyToReview(userId, reviewId, reply),
   loadSampleNetwork: (currentUserId: string) => backend.loadSampleNetwork(currentUserId),
   getState: () => backend.getState(),
   resetDemo: () => backend.resetDemo(),

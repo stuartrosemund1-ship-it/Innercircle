@@ -8,7 +8,8 @@ import { LoadingState } from '@/components/ui/LoadingState';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCircleData } from '@/hooks/useCircleData';
 import { api } from '@/lib/api';
-import type { Connection, ProfessionalReference, Profile } from '@/types';
+import { requestStatusLabel } from '@/lib/engagement';
+import type { Connection, ProfessionalReference, Profile, ServiceRequest } from '@/types';
 import { colors, radii, spacing, typography } from '@/constants/theme';
 
 export default function ActivityScreen() {
@@ -17,6 +18,7 @@ export default function ActivityScreen() {
   const router = useRouter();
   const [profiles, setProfiles] = useState<Record<string, Profile>>({});
   const [references, setReferences] = useState<ProfessionalReference[]>([]);
+  const [requests, setRequests] = useState<ServiceRequest[]>([]);
   useEffect(() => {
     if (!user) return;
     (async () => {
@@ -25,10 +27,22 @@ export default function ActivityScreen() {
       for (const p of state.profiles) map[p.id] = p;
       setProfiles(map);
       setReferences(state.references.filter((reference) => reference.referee_id === user.id && reference.status === 'requested'));
+      const owned = new Set(state.professionals.filter((professional) => professional.created_by === user.id || professional.owner_user_id === user.id).map((professional) => professional.id));
+      setRequests(state.serviceRequests.filter((request) => request.member_id === user.id || owned.has(request.professional_id)));
     })();
   }, [user, data.connections, data.notifications]);
   if (!user) return null;
   if (data.loading) return <LoadingState />;
+  async function updateRequest(requestId: string, action: 'accepted' | 'declined' | 'proposed' | 'completed', proposedTime?: string) {
+    try {
+      await api.respondServiceRequest(user!.id, requestId, action, proposedTime ?? null);
+      const state = await api.getState();
+      const owned = new Set(state.professionals.filter((professional) => professional.created_by === user!.id || professional.owner_user_id === user!.id).map((professional) => professional.id));
+      setRequests(state.serviceRequests.filter((request) => request.member_id === user!.id || owned.has(request.professional_id)));
+      await data.refresh();
+    }
+    catch (e) { Alert.alert('Could not update', e instanceof Error ? e.message : 'Try again'); }
+  }
   async function respond(conn: Connection, accept: boolean) {
     try { await api.respondConnection(conn.id, user!.id, accept); await data.refresh(); }
     catch (e) { Alert.alert('Could not update', e instanceof Error ? e.message : 'Try again'); }
@@ -37,7 +51,7 @@ export default function ActivityScreen() {
   return (
     <Screen scroll onRefresh={data.refresh}>
       <View style={styles.headerRow}>
-        <Text style={styles.title}>Activity</Text>
+        <Text style={styles.title}>Updates</Text>
         <Button title="Mark all read" variant="ghost" onPress={async () => { await api.markAllNotificationsRead(user.id); await data.refresh(); }} />
       </View>
       <Text style={styles.section}>Connection requests</Text>
@@ -50,6 +64,27 @@ export default function ActivityScreen() {
           </View>
         </View>
       ))}
+      <Text style={styles.section}>Quote requests</Text>
+      {requests.length === 0 ? <Text style={styles.muted}>No quote requests yet. Open a professional and ask for a quote.</Text> : requests.map((request) => {
+        const professional = data.professionals.find((item) => item.id === request.professional_id);
+        const owns = professional?.created_by === user.id || professional?.owner_user_id === user.id;
+        const title = owns ? `${profiles[request.member_id]?.full_name ?? 'A member'} asked ${professional?.name ?? 'you'}` : `You asked ${professional?.name ?? 'a professional'}`;
+        return (
+          <View key={request.id} style={styles.card}>
+            <Text style={styles.cardTitle}>{title}</Text>
+            <Text style={styles.cardBody}>{request.service_needed} · {request.preferred_dates} · {request.location}</Text>
+            <Text style={styles.cardBody}>{request.budget != null ? `Budget £${request.budget}` : 'No budget'} · {requestStatusLabel(request.status)}{request.proposed_time ? ` · ${request.proposed_time}` : ''}</Text>
+            {owns && request.status === 'pending' ? (
+              <View style={styles.rowActions}>
+                <Button title="Accept" variant="teal" onPress={() => updateRequest(request.id, 'accepted')} style={{ flex: 1 }} />
+                <Button title="Decline" variant="secondary" onPress={() => updateRequest(request.id, 'declined')} style={{ flex: 1 }} />
+                <Button title="Propose Tue 10:00" variant="ghost" onPress={() => updateRequest(request.id, 'proposed', 'Tuesday 10:00')} style={{ flex: 1 }} />
+              </View>
+            ) : null}
+            {(request.status === 'accepted' || request.status === 'proposed') ? <Button title="Mark completed" variant="secondary" onPress={() => updateRequest(request.id, 'completed')} style={{ marginTop: spacing.sm }} /> : null}
+          </View>
+        );
+      })}
       <Text style={styles.section}>Reference requests</Text>
       {references.length === 0 ? <Text style={styles.muted}>No one is waiting on you to vouch for an application.</Text> : references.map((reference) => {
         const applicant = profiles[reference.applicant_id];

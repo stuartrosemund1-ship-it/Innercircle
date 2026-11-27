@@ -4,6 +4,7 @@ import { Screen } from '@/components/ui/Screen';
 import { Button } from '@/components/ui/Button';
 import { LoadingState } from '@/components/ui/LoadingState';
 import { ErrorState } from '@/components/ui/ErrorState';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { Avatar } from '@/components/ui/Avatar';
 import { VerifiedBadge } from '@/components/ui/VerifiedBadge';
 import { useAuth } from '@/contexts/AuthContext';
@@ -46,7 +47,7 @@ export default function HomeScreen() {
       <Button title="Explore Trusted Professionals" variant="ghost" onPress={() => router.push('/(tabs)/discover')} style={styles.actionGap} />
       <Text style={styles.section}>Recently shared recommendations</Text>
       {recCards.length === 0 ? (
-        <View style={styles.card}><Text style={styles.cardBody}>Recommendations from people in your circle will appear here. Nothing invented — only real relationships in your network.</Text></View>
+        <EmptyState title="Nothing shared yet" description="Recommendations from people in your circle will appear here. Load the sample network from Profile to see Alex Rivera." />
       ) : recCards.map(({ r, recommender, pro }) => (
         <Pressable key={r.id} style={styles.card} onPress={() => router.push(`/professional/${pro.id}`)}>
           <View style={styles.row}>

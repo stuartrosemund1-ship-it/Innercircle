@@ -3,14 +3,15 @@ import { supabase, requireSupabase } from '@/lib/supabase/client';
 import { clearPasswordRecovery } from '@/lib/supabase/linking';
 import { applicationIssues, assertPriceOrder, isApprovedProfessional } from '@/lib/application';
 import {
-  DEFAULT_PRIVACY, type AppNotification, type Connection, type Conversation, type ConversationMember,
+  DEFAULT_NOTIFICATION_PREFERENCES, DEFAULT_PRIVACY, type AppNotification, type Connection, type Conversation, type ConversationMember,
   type IntroductionRequest, type Invitation, type Message, type NotificationType, type PersonalTrust,
   type PriceCurrency, type PricingUnit, type PrivacySettings, type Professional, type ProfessionalApplicationInput,
-  type ProfessionalRecommendation, type ProfessionalReference, type Profile, type Report, type ReportReason, type ReportTargetType,
+  type ProfessionalRecommendation, type ProfessionalReference, type ProfessionalReview, type Profile, type Report, type ReportReason, type ReportTargetType, type ServiceRequest,
 } from '@/types';
+import { budgetFits, deliverExternalNotification } from '@/lib/engagement';
 
-const PROFILE_COLUMNS = 'id, email, full_name, avatar_url, bio, city, interests, privacy, onboarding_completed, is_admin, terms_accepted_at, created_at';
-const PROFESSIONAL_COLUMNS = 'id, owner_user_id, created_by, name, category, bio, location, experience, availability, avatar_url, years_experience, licence_number, licence_issuer, service_area, photo_id_path, insurance_doc_path, qualification_doc_path, conduct_accepted_at, application_status, application_rejection_reason, application_submitted_at, application_reviewed_at, price_min, price_max, currency, pricing_unit, pricing_notes, verification_status, is_verified, verified_at, created_at';
+const PROFILE_COLUMNS = 'id, email, full_name, avatar_url, bio, city, interests, privacy, notification_preferences, onboarding_completed, is_admin, terms_accepted_at, created_at';
+const PROFESSIONAL_COLUMNS = 'id, owner_user_id, created_by, name, category, bio, location, experience, availability, avatar_url, years_experience, licence_number, licence_issuer, service_area, photo_id_path, insurance_doc_path, qualification_doc_path, conduct_accepted_at, application_status, application_rejection_reason, application_submitted_at, application_reviewed_at, price_min, price_max, currency, pricing_unit, pricing_notes, qualifications, portfolio, typical_response_time, verification_status, is_verified, verified_at, created_at';
 const REFERENCE_COLUMNS = 'id, professional_id, applicant_id, referee_id, status, note, created_at, responded_at';
 const REPORT_COLUMNS = 'id, reporter_id, target_type, target_profile_id, target_professional_id, reason, details, status, resolution_note, created_at, resolved_at, resolved_by';
 const CONTACT_COLUMNS = 'professional_id, contact_email, contact_phone, website';
@@ -29,6 +30,8 @@ export interface AppSnapshot {
   invitations: Invitation[];
   notifications: AppNotification[];
   reports: Report[];
+  serviceRequests: ServiceRequest[];
+  reviews: ProfessionalReview[];
 }
 
 const listeners = new Set<() => void>();
@@ -81,6 +84,7 @@ function mapProfile(row: Profile): Profile {
     interests: row.interests ?? [],
     privacy: { ...DEFAULT_PRIVACY, ...(row.privacy ?? {}) } as PrivacySettings,
     onboarding_completed: Boolean(row.onboarding_completed),
+    notification_preferences: { ...DEFAULT_NOTIFICATION_PREFERENCES, ...(row.notification_preferences ?? {}) },
     is_admin: Boolean(row.is_admin),
     terms_accepted_at: row.terms_accepted_at ?? null,
     created_at: row.created_at,
@@ -117,6 +121,9 @@ function mapProfessional(row: Omit<Professional, 'website' | 'contact_email' | '
     currency: (row.currency ?? 'GBP') as PriceCurrency,
     pricing_unit: (row.pricing_unit ?? null) as PricingUnit | null,
     pricing_notes: row.pricing_notes ?? null,
+    qualifications: row.qualifications ?? [],
+    portfolio: Array.isArray(row.portfolio) ? row.portfolio : [],
+    typical_response_time: row.typical_response_time ?? null,
     is_verified: Boolean(row.is_verified),
     verified_at: row.verified_at ?? null,
     bio: row.bio ?? null,
@@ -166,7 +173,7 @@ async function getProfile(userId: string): Promise<Profile | null> {
 async function loadSnapshot(): Promise<AppSnapshot> {
   const [
     profiles, connections, professionals, references, recommendations, personalTrusts, introductions,
-    conversations, conversationMembers, messages, invitations, notifications, reports,
+    conversations, conversationMembers, messages, invitations, notifications, reports, serviceRequests, reviews,
   ] = await Promise.all([
     db().from('profiles').select(PROFILE_COLUMNS),
     db().from('connections').select('id, requester_id, recipient_id, status, created_at, updated_at'),
@@ -181,8 +188,10 @@ async function loadSnapshot(): Promise<AppSnapshot> {
     db().from('invitations').select('id, inviter_id, recipient_email, status, expires_at, created_at'),
     db().from('notifications').select('id, recipient_id, type, title, body, reference_id, read_at, created_at').order('created_at', { ascending: false }),
     db().from('reports').select(REPORT_COLUMNS).order('created_at', { ascending: false }),
+    db().from('service_requests').select('id, professional_id, member_id, service_needed, preferred_dates, location, budget, notes, status, proposed_time, created_at, updated_at'),
+    db().from('professional_reviews').select('id, professional_id, author_id, rating, body, owner_reply, replied_at, created_at'),
   ]);
-  for (const result of [profiles, connections, references, recommendations, personalTrusts, introductions, conversations, conversationMembers, messages, invitations, notifications, reports]) {
+  for (const result of [profiles, connections, references, recommendations, personalTrusts, introductions, conversations, conversationMembers, messages, invitations, notifications, reports, serviceRequests, reviews]) {
     fail(result.error);
   }
   return {
@@ -199,6 +208,8 @@ async function loadSnapshot(): Promise<AppSnapshot> {
     invitations: (invitations.data ?? []) as Invitation[],
     notifications: (notifications.data ?? []) as AppNotification[],
     reports: (reports.data ?? []) as Report[],
+    serviceRequests: (serviceRequests.data ?? []) as ServiceRequest[],
+    reviews: (reviews.data ?? []) as ProfessionalReview[],
   };
 }
 
@@ -264,6 +275,7 @@ export const supabaseApi = {
     if (patch.privacy !== undefined) next.privacy = patch.privacy;
     if (patch.onboarding_completed !== undefined) next.onboarding_completed = patch.onboarding_completed;
     if (patch.terms_accepted_at !== undefined) next.terms_accepted_at = patch.terms_accepted_at;
+    if (patch.notification_preferences !== undefined) next.notification_preferences = patch.notification_preferences;
     const { data, error } = await db().from('profiles').update(next).eq('id', userId).select(PROFILE_COLUMNS).single();
     fail(error);
     emit();
@@ -290,6 +302,7 @@ export const supabaseApi = {
       privacy: { ...DEFAULT_PRIVACY },
       onboarding_completed: false,
       is_admin: false,
+      notification_preferences: { ...DEFAULT_NOTIFICATION_PREFERENCES },
       terms_accepted_at: null,
       created_at: new Date(0).toISOString(),
     });
@@ -659,6 +672,53 @@ export const supabaseApi = {
       return professional.name.toLowerCase().includes(q);
     });
     return { people, networkProfessionals, generalProfessionals };
+  },
+  async createServiceRequest(userId: string, input: { professionalId: string; serviceNeeded: string; preferredDates: string; location: string; budget: number | null; notes: string | null }) {
+    await assertSelf(userId);
+    const professional = await db().from('professionals').select('application_status, price_min, price_max, name, owner_user_id, created_by').eq('id', input.professionalId).maybeSingle();
+    fail(professional.error);
+    const row = professional.data as Pick<Professional, 'application_status' | 'price_min' | 'price_max' | 'name' | 'owner_user_id' | 'created_by'> | null;
+    if (!row || row.application_status !== 'approved') throw new Error('You can only request a quote from an approved professional.');
+    if (input.budget == null || !budgetFits(input.budget, asNumber(row.price_min), asNumber(row.price_max))) throw new Error('Choose a budget inside the published price range.');
+    const { data, error } = await db().from('service_requests').insert({
+      professional_id: input.professionalId, member_id: userId, service_needed: input.serviceNeeded.trim(),
+      preferred_dates: input.preferredDates.trim(), location: input.location.trim(), budget: input.budget,
+      notes: input.notes?.trim() || null, status: 'pending',
+    }).select('id, professional_id, member_id, service_needed, preferred_dates, location, budget, notes, status, proposed_time, created_at, updated_at').single();
+    fail(error);
+    if (!data) throw new Error('Could not send the request');
+    const owner = row.owner_user_id ?? row.created_by;
+    if (owner && owner !== userId) {
+      const name = await profileName(userId);
+      try { await notify(owner, 'service_request', 'New quote request', `${name} asked ${row.name} for a quote.`, data.id); } catch { deliverExternalNotification('service_request', owner); }
+    }
+    emit();
+    return data as ServiceRequest;
+  },
+  async respondServiceRequest(userId: string, requestId: string, action: 'accepted' | 'declined' | 'proposed' | 'completed' | 'cancelled', proposedTime: string | null = null) {
+    await assertSelf(userId);
+    const patch: Record<string, unknown> = { status: action };
+    if (action === 'proposed') patch.proposed_time = proposedTime?.trim() || null;
+    const { data, error } = await db().from('service_requests').update(patch).eq('id', requestId).select('id, professional_id, member_id, service_needed, preferred_dates, location, budget, notes, status, proposed_time, created_at, updated_at').single();
+    fail(error);
+    emit();
+    return data as ServiceRequest;
+  },
+  async createReview(userId: string, professionalId: string, rating: number, body: string) {
+    await assertSelf(userId);
+    const { data, error } = await db().from('professional_reviews').insert({
+      professional_id: professionalId, author_id: userId, rating, body: body.trim(),
+    }).select('id, professional_id, author_id, rating, body, owner_reply, replied_at, created_at').single();
+    fail(error);
+    emit();
+    return data as ProfessionalReview;
+  },
+  async replyToReview(userId: string, reviewId: string, reply: string) {
+    await assertSelf(userId);
+    const { data, error } = await db().from('professional_reviews').update({ owner_reply: reply.trim() }).eq('id', reviewId).select('id, professional_id, author_id, rating, body, owner_reply, replied_at, created_at').single();
+    fail(error);
+    emit();
+    return data as ProfessionalReview;
   },
   async setDemoAdmin(_userId: string, _enabled: boolean) {
     throw new Error('Admin access is granted in the database, not in the app.');

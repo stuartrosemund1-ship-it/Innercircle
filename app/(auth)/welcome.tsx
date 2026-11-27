@@ -2,6 +2,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { Screen } from '@/components/ui/Screen';
+import { Logo } from '@/components/brand/Logo';
 import { Button } from '@/components/ui/Button';
 import { brandName, colors, spacing, tagline, typography } from '@/constants/theme';
 import { isDemoMode } from '@/lib/config';
@@ -11,12 +12,13 @@ export default function WelcomeScreen() {
   return (
     <Screen scroll contentStyle={{ flexGrow: 1, justifyContent: 'center' }}>
       <LinearGradient colors={[colors.gradient.start, colors.gradient.mid, colors.gradient.end]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
+        <Logo size={84} light />
         <Text style={styles.logo}>{brandName}</Text>
         <Text style={styles.tagline}>{tagline}</Text>
       </LinearGradient>
       <View style={styles.copy}>
-        <Text style={styles.headline}>Trust spreads through people</Text>
-        <Text style={styles.body}>Discover professionals through friends you already trust — then decide for yourself who belongs in your circle.</Text>
+        <Text style={styles.headline}>Trusted professionals, recommended by people you know</Text>
+        <Text style={styles.body}>Ask for a quote, see who in your circle has used them, and decide for yourself who belongs there.</Text>
         {isDemoMode ? <Text style={styles.demoNote}>Running in a labelled development environment. Data stays on this device until Supabase credentials are configured.</Text> : null}
       </View>
       <View style={styles.actions}>
