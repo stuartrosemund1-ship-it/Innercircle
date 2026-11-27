@@ -2,16 +2,17 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   AppNotification, Connection, Conversation, ConversationMember, DEFAULT_NOTIFICATION_PREFERENCES, DEFAULT_PRIVACY,
   IntroductionRequest, Invitation, Message, PersonalTrust, PrivacySettings,
-  Professional, ProfessionalApplicationInput, ProfessionalRecommendation, ProfessionalReference, ProfessionalReview, Profile, Report, ReportReason, ReportTargetType, ServiceRequest,
+  LifeTeamAsk, LifeTeamPick, LifeTeamRank, LifeTeamReply, LifeTeamSlot, Professional, ProfessionalApplicationInput, ProfessionalRecommendation, ProfessionalReference, ProfessionalReview, Profile, Report, ReportReason, ReportTargetType, ServiceRequest,
 } from '@/types';
 import { applicationIssues, assertPriceOrder, isApprovedProfessional } from '@/lib/application';
 import { allowsNotification, budgetFits, deliverExternalNotification } from '@/lib/engagement';
+import { LIFE_TEAM_ROLES } from '@/lib/lifeTeam';
 import { createId, hashToken, nowIso } from '@/lib/id';
 
-const STORAGE_KEY = 'lifecircle.demo.v4';
+const STORAGE_KEY = 'lifecircle.demo.v5';
 
 export interface DemoState {
-  version: 4;
+  version: 5;
   environment: 'development-demo';
   currentUserId: string | null;
   sessionPasswordByEmail: Record<string, string>;
@@ -30,15 +31,20 @@ export interface DemoState {
   reports: Report[];
   serviceRequests: ServiceRequest[];
   reviews: ProfessionalReview[];
+  lifeTeamSlots: LifeTeamSlot[];
+  lifeTeamPicks: LifeTeamPick[];
+  lifeTeamAsks: LifeTeamAsk[];
+  lifeTeamReplies: LifeTeamReply[];
   sampleDataLoaded: boolean;
 }
 
 function emptyState(): DemoState {
   return {
-    version: 4, environment: 'development-demo', currentUserId: null,
+    version: 5, environment: 'development-demo', currentUserId: null,
     sessionPasswordByEmail: {}, profiles: [], connections: [], professionals: [],
     references: [], recommendations: [], personalTrusts: [], introductions: [], conversations: [],
     conversationMembers: [], messages: [],     invitations: [], notifications: [], reports: [], serviceRequests: [], reviews: [],
+    lifeTeamSlots: [], lifeTeamPicks: [], lifeTeamAsks: [], lifeTeamReplies: [],
     sampleDataLoaded: false,
   };
 }
@@ -57,11 +63,15 @@ export async function loadDemoState(): Promise<DemoState> {
     const raw = await AsyncStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as DemoState;
-      if (parsed.version === 4) {
+      if (parsed.version === 5) {
         parsed.references = parsed.references ?? [];
         parsed.reports = parsed.reports ?? [];
         parsed.serviceRequests = parsed.serviceRequests ?? [];
         parsed.reviews = parsed.reviews ?? [];
+        parsed.lifeTeamSlots = parsed.lifeTeamSlots ?? [];
+        parsed.lifeTeamPicks = parsed.lifeTeamPicks ?? [];
+        parsed.lifeTeamAsks = parsed.lifeTeamAsks ?? [];
+        parsed.lifeTeamReplies = parsed.lifeTeamReplies ?? [];
         memory = parsed;
         return memory;
       }
@@ -100,6 +110,20 @@ function pushNotification(state: DemoState, partial: Omit<AppNotification, 'id' 
   if (!allowsNotification(preferences, partial.type)) return;
   deliverExternalNotification(partial.type, partial.recipient_id);
   state.notifications.unshift({ id: createId('notif'), created_at: nowIso(), read_at: null, ...partial });
+}
+
+function teamProfessional(name: string, role: string, category: Professional['category'], min: number, max: number, unit: Professional['pricing_unit'], verified: boolean, createdBy: string): Professional {
+  const now = nowIso();
+  return {
+    id: createId('pro'), owner_user_id: createdBy, created_by: createdBy, name, category,
+    bio: `${role} based in Bristol.`, location: 'Bristol', website: null, contact_email: null, contact_phone: null,
+    experience: null, availability: null, avatar_url: null, years_experience: 8, licence_number: null, licence_issuer: null,
+    service_area: 'Bristol', photo_id_path: null, insurance_doc_path: null, qualification_doc_path: null, conduct_accepted_at: now,
+    application_status: 'approved', application_rejection_reason: null, application_submitted_at: now, application_reviewed_at: now,
+    price_min: min, price_max: max, currency: 'GBP', pricing_unit: unit, pricing_notes: null,
+    qualifications: [role], portfolio: [], typical_response_time: 'Usually replies within a day', life_role: role,
+    verification_status: verified ? 'verified' : 'unverified', is_verified: verified, verified_at: verified ? now : null, created_at: now,
+  };
 }
 
 export const demoApi = {
@@ -402,7 +426,7 @@ export const demoApi = {
       conduct_accepted_at: input.conduct_accepted ? now : null,
       application_status: 'draft', application_rejection_reason: null,
       application_submitted_at: null, application_reviewed_at: null,
-      qualifications: [], portfolio: [], typical_response_time: null,
+      qualifications: [], portfolio: [], typical_response_time: null, life_role: null,
       price_min: input.price_min, price_max: input.price_max, currency: input.currency,
       pricing_unit: input.pricing_unit, pricing_notes: input.pricing_notes?.trim() || null,
       verification_status: 'unverified', is_verified: false, verified_at: null, created_at: now,
@@ -676,8 +700,106 @@ export const demoApi = {
     state.messages = state.messages.filter((message) => message.sender_id !== userId);
     state.serviceRequests = state.serviceRequests.filter((request) => request.member_id !== userId);
     state.reviews = state.reviews.filter((review) => review.author_id !== userId);
+    const ownedSlots = new Set(state.lifeTeamSlots.filter((slot) => slot.owner_id === userId).map((slot) => slot.id));
+    state.lifeTeamSlots = state.lifeTeamSlots.filter((slot) => slot.owner_id !== userId);
+    state.lifeTeamPicks = state.lifeTeamPicks.filter((pick) => !ownedSlots.has(pick.slot_id));
+    state.lifeTeamAsks = state.lifeTeamAsks.filter((ask) => ask.asker_id !== userId);
+    state.lifeTeamReplies = state.lifeTeamReplies.filter((reply) => reply.replier_id !== userId);
     if (state.currentUserId === userId) state.currentUserId = null;
     await save(state);
+  },
+  async ensureLifeTeam(userId: string) {
+    const state = await loadDemoState();
+    const mine = state.lifeTeamSlots.filter((slot) => slot.owner_id === userId);
+    if (mine.length > 0) return state;
+    const now = nowIso();
+    for (const profession of LIFE_TEAM_ROLES) {
+      state.lifeTeamSlots.push({ id: createId('slot'), owner_id: userId, profession, custom: false, created_at: now });
+    }
+    await save(state);
+    return state;
+  },
+  async addLifeTeamSlot(userId: string, profession: string) {
+    const state = await loadDemoState();
+    const name = profession.trim();
+    if (!name) throw new Error('Name the profession.');
+    if (state.lifeTeamSlots.some((slot) => slot.owner_id === userId && slot.profession.toLowerCase() === name.toLowerCase())) throw new Error('You already have that slot.');
+    const slot: LifeTeamSlot = { id: createId('slot'), owner_id: userId, profession: name, custom: true, created_at: nowIso() };
+    state.lifeTeamSlots.push(slot);
+    await save(state);
+    return slot;
+  },
+  async setLifeTeamPick(userId: string, slotId: string, professionalId: string, rank?: LifeTeamRank) {
+    const state = await loadDemoState();
+    const slot = state.lifeTeamSlots.find((item) => item.id === slotId);
+    if (!slot || slot.owner_id !== userId) throw new Error('Only you can choose who is in your Life Team.');
+    const professional = state.professionals.find((item) => item.id === professionalId);
+    if (!professional || !isApprovedProfessional(professional)) throw new Error('Only approved professionals can fill a slot.');
+    const existing = state.lifeTeamPicks.filter((pick) => pick.slot_id === slotId);
+    if (existing.some((pick) => pick.professional_id === professionalId)) throw new Error('They are already in this slot.');
+    const nextRank = (rank ?? ((existing.length === 0 ? 1 : Math.max(...existing.map((pick) => pick.rank)) + 1) as LifeTeamRank));
+    if (nextRank < 1 || nextRank > 3) throw new Error('A slot holds a #1 and up to two backups.');
+    if (existing.some((pick) => pick.rank === nextRank)) throw new Error('That place is already filled.');
+    state.lifeTeamPicks.push({ id: createId('pick'), slot_id: slotId, professional_id: professionalId, rank: nextRank as LifeTeamRank, created_at: nowIso() });
+    await save(state);
+    return state;
+  },
+  async moveLifeTeamPick(userId: string, slotId: string, professionalId: string, direction: 'up' | 'down') {
+    const state = await loadDemoState();
+    const slot = state.lifeTeamSlots.find((item) => item.id === slotId);
+    if (!slot || slot.owner_id !== userId) throw new Error('Only you can reorder your Life Team.');
+    const mine = state.lifeTeamPicks.filter((pick) => pick.slot_id === slotId).sort((a, b) => a.rank - b.rank);
+    const index = mine.findIndex((pick) => pick.professional_id === professionalId);
+    const swapWith = direction === 'up' ? index - 1 : index + 1;
+    if (index < 0 || swapWith < 0 || swapWith >= mine.length) return state;
+    const rank = mine[index].rank;
+    mine[index].rank = mine[swapWith].rank;
+    mine[swapWith].rank = rank;
+    await save(state);
+    return state;
+  },
+  async removeLifeTeamPick(userId: string, slotId: string, professionalId: string) {
+    const state = await loadDemoState();
+    const slot = state.lifeTeamSlots.find((item) => item.id === slotId);
+    if (!slot || slot.owner_id !== userId) throw new Error('Only you can change your Life Team.');
+    state.lifeTeamPicks = state.lifeTeamPicks.filter((pick) => !(pick.slot_id === slotId && pick.professional_id === professionalId));
+    const remaining = state.lifeTeamPicks.filter((pick) => pick.slot_id === slotId).sort((a, b) => a.rank - b.rank);
+    remaining.forEach((pick, index) => { pick.rank = (index + 1) as LifeTeamRank; });
+    await save(state);
+    return state;
+  },
+  async askLifeTeam(userId: string, slotId: string) {
+    const state = await loadDemoState();
+    const slot = state.lifeTeamSlots.find((item) => item.id === slotId);
+    if (!slot || slot.owner_id !== userId) throw new Error('Only you can ask your circle.');
+    if (state.lifeTeamAsks.some((ask) => ask.slot_id === slotId && ask.status === 'open')) throw new Error('You already asked about this slot.');
+    const ask: LifeTeamAsk = { id: createId('ask'), slot_id: slotId, asker_id: userId, profession: slot.profession, status: 'open', created_at: nowIso() };
+    state.lifeTeamAsks.push(ask);
+    const asker = state.profiles.find((profile) => profile.id === userId);
+    for (const connection of state.connections) {
+      if (connection.status !== 'accepted') continue;
+      if (connection.requester_id !== userId && connection.recipient_id !== userId) continue;
+      const other = connection.requester_id === userId ? connection.recipient_id : connection.requester_id;
+      pushNotification(state, { recipient_id: other, type: 'life_team_ask', title: `Who's your ${slot.profession.toLowerCase()}?`, body: `${asker?.full_name ?? 'A connection'} asked who you trust.`, reference_id: ask.id });
+    }
+    await save(state);
+    return ask;
+  },
+  async replyLifeTeamAsk(userId: string, askId: string, professionalId: string) {
+    const state = await loadDemoState();
+    const ask = state.lifeTeamAsks.find((item) => item.id === askId);
+    if (!ask || ask.status !== 'open') throw new Error('That ask is closed.');
+    const connected = state.connections.some((connection) => connection.status === 'accepted' && ((connection.requester_id === userId && connection.recipient_id === ask.asker_id) || (connection.recipient_id === userId && connection.requester_id === ask.asker_id)));
+    if (!connected) throw new Error('Only people in their circle can reply.');
+    const professional = state.professionals.find((item) => item.id === professionalId);
+    if (!professional || !isApprovedProfessional(professional)) throw new Error('Recommend an approved professional.');
+    if (state.lifeTeamReplies.some((reply) => reply.ask_id === askId && reply.replier_id === userId)) throw new Error('You already replied.');
+    const reply: LifeTeamReply = { id: createId('reply'), ask_id: askId, replier_id: userId, professional_id: professionalId, note: null, created_at: nowIso() };
+    state.lifeTeamReplies.push(reply);
+    const replier = state.profiles.find((profile) => profile.id === userId);
+    pushNotification(state, { recipient_id: ask.asker_id, type: 'life_team_reply', title: 'A Life Team suggestion', body: `${replier?.full_name ?? 'A connection'} suggested ${professional.name} as their ${ask.profession.toLowerCase()}.`, reference_id: reply.id });
+    await save(state);
+    return reply;
   },
   async loadSampleNetwork(currentUserId: string) {
     const state = await loadDemoState();
@@ -707,7 +829,7 @@ export const demoApi = {
         { title: 'Form check', caption: 'Squat and hinge review, with two follow-up sessions.' },
         { title: 'Return to training', caption: 'A gentle restart after a desk-job back flare.' },
       ],
-      typical_response_time: 'Usually replies within a day',
+      typical_response_time: 'Usually replies within a day', life_role: 'Personal trainer',
       verification_status: 'verified', is_verified: true, verified_at: reviewedAt, created_at: reviewedAt,
     };
     const morgan: Professional = {
@@ -719,7 +841,7 @@ export const demoApi = {
       qualification_doc_path: 'professionals/sample/qualification/morgan-ellis.pdf', conduct_accepted_at: reviewedAt,
       application_status: 'pending', application_rejection_reason: null, application_submitted_at: reviewedAt, application_reviewed_at: null,
       price_min: 80, price_max: 120, currency: 'GBP', pricing_unit: 'per_hour', pricing_notes: 'Call-out is included in the first hour.',
-      qualifications: ['NICEIC'], portfolio: [{ title: 'Kitchen rewire', caption: 'A full domestic rewire, finished in five days.' }], typical_response_time: 'Usually replies within two days',
+      qualifications: ['NICEIC'], portfolio: [{ title: 'Kitchen rewire', caption: 'A full domestic rewire, finished in five days.' }], typical_response_time: 'Usually replies within two days', life_role: 'Electrician',
       verification_status: 'unverified', is_verified: false, verified_at: null, created_at: reviewedAt,
     };
     const priya: Professional = {
@@ -731,7 +853,7 @@ export const demoApi = {
       qualification_doc_path: 'professionals/sample/qualification/priya-nair.pdf', conduct_accepted_at: reviewedAt,
       application_status: 'pending', application_rejection_reason: null, application_submitted_at: reviewedAt, application_reviewed_at: null,
       price_min: 55, price_max: 90, currency: 'GBP', pricing_unit: 'per_session', pricing_notes: 'A first meeting is charged at the lower rate.',
-      qualifications: ['ICAEW'], portfolio: [], typical_response_time: 'Usually replies within a day',
+      qualifications: ['ICAEW'], portfolio: [], typical_response_time: 'Usually replies within a day', life_role: 'Accountant',
       verification_status: 'unverified', is_verified: false, verified_at: null, created_at: reviewedAt,
     };
     const sam: Professional = {
@@ -741,9 +863,9 @@ export const demoApi = {
       years_experience: 4, licence_number: 'HM-1002', licence_issuer: 'Self-declared', service_area: 'South Bristol',
       photo_id_path: 'professionals/sample/photo-id/sam-brooks.jpg', insurance_doc_path: 'professionals/sample/insurance/sam-brooks.pdf',
       qualification_doc_path: null, conduct_accepted_at: reviewedAt,
-      application_status: 'rejected', application_rejection_reason: 'The insurance document did not match the name on the application.', application_submitted_at: reviewedAt, application_reviewed_at: reviewedAt,
+      application_status: 'rejected',       application_rejection_reason: 'The insurance document did not match the name on the application.', application_submitted_at: reviewedAt, application_reviewed_at: reviewedAt,
       price_min: 30, price_max: 45, currency: 'GBP', pricing_unit: 'per_hour', pricing_notes: null,
-      qualifications: [], portfolio: [], typical_response_time: null,
+      qualifications: [], portfolio: [], typical_response_time: null, life_role: 'Builder',
       verification_status: 'unverified', is_verified: false, verified_at: null, created_at: reviewedAt,
     };
     state.professionals.push(alex, morgan, priya, sam);
@@ -780,6 +902,43 @@ export const demoApi = {
     pushNotification(state, { recipient_id: currentUserId, type: 'service_request', title: 'New quote request', body: 'Sarah Chen asked Morgan Ellis for a quote: kitchen lighting circuit.', reference_id: incoming.id });
     pushNotification(state, { recipient_id: currentUserId, type: 'service_request_update', title: 'Quote request sent', body: 'Your quote request to Alex Rivera is waiting for a reply.', reference_id: pendingMine.id });
     pushNotification(state, { recipient_id: currentUserId, type: 'reference_request', title: 'Reference still open', body: 'James Okonkwo has not yet confirmed the reference for Morgan Ellis.', reference_id: null });
+    const helen = teamProfessional('Helen Crowe', 'Accountant', 'Accountants and Financial Advisers', 120, 180, 'per_session', true, sarah.id);
+    const tom = teamProfessional('Tom Adeyemi', 'Plumber', 'Electricians and Plumbers', 60, 95, 'per_hour', true, sarah.id);
+    const anita = teamProfessional('Dr Anita Shah', 'Dentist', 'Health and Wellbeing', 80, 150, 'per_session', true, james.id);
+    const maya = teamProfessional('Maya Cole', 'Cleaner', 'Cleaners and Gardeners', 18, 25, 'per_hour', false, sarah.id);
+    const owen = teamProfessional('Owen Clarke', 'Solicitor', 'Lawyers', 200, 350, 'per_hour', true, james.id);
+    const ibrahim = teamProfessional('Ibrahim Khan', 'Electrician', 'Electricians and Plumbers', 70, 110, 'per_hour', true, sarah.id);
+    state.professionals.push(helen, tom, anita, maya, owen, ibrahim);
+    const older = new Date(Date.now() - 10 * 86400000).toISOString();
+    const ensureSlots = (ownerId: string) => {
+      const existing = state.lifeTeamSlots.filter((slot) => slot.owner_id === ownerId);
+      if (existing.length > 0) return existing;
+      const created = LIFE_TEAM_ROLES.map((profession) => ({ id: createId('slot'), owner_id: ownerId, profession, custom: false as const, created_at: reviewedAt }));
+      state.lifeTeamSlots.push(...created);
+      return created;
+    };
+    const mine = ensureSlots(currentUserId);
+    const sarahSlots = ensureSlots(sarah.id);
+    const jamesSlots = ensureSlots(james.id);
+    const byRole = (list: LifeTeamSlot[], profession: string) => list.find((slot) => slot.profession === profession)!;
+    const place = (slotId: string, professionalId: string, rank: LifeTeamRank, when: string) => {
+      state.lifeTeamPicks.push({ id: createId('pick'), slot_id: slotId, professional_id: professionalId, rank, created_at: when });
+    };
+    place(byRole(mine, 'Personal trainer').id, alex.id, 1, nowIso());
+    place(byRole(mine, 'Accountant').id, helen.id, 1, nowIso());
+    place(byRole(mine, 'Plumber').id, tom.id, 1, nowIso());
+    place(byRole(mine, 'Dentist').id, anita.id, 1, nowIso());
+    place(byRole(mine, 'Cleaner').id, maya.id, 1, nowIso());
+    place(byRole(mine, 'Solicitor').id, owen.id, 1, nowIso());
+    place(byRole(sarahSlots, 'Personal trainer').id, alex.id, 1, older);
+    place(byRole(jamesSlots, 'Personal trainer').id, alex.id, 2, older);
+    place(byRole(sarahSlots, 'Electrician').id, ibrahim.id, 1, older);
+    const electricianAsk: LifeTeamAsk = { id: createId('ask'), slot_id: byRole(mine, 'Electrician').id, asker_id: currentUserId, profession: 'Electrician', status: 'open', created_at: nowIso() };
+    state.lifeTeamAsks.push(electricianAsk);
+    state.lifeTeamReplies.push({ id: createId('reply'), ask_id: electricianAsk.id, replier_id: sarah.id, professional_id: ibrahim.id, note: 'Ibrahim rewired our landing and left it tidy.', created_at: nowIso() });
+    pushNotification(state, { recipient_id: sarah.id, type: 'life_team_ask', title: "Who's your electrician?", body: 'Your connection asked who you trust.', reference_id: electricianAsk.id });
+    pushNotification(state, { recipient_id: james.id, type: 'life_team_ask', title: "Who's your electrician?", body: 'Your connection asked who you trust.', reference_id: electricianAsk.id });
+    pushNotification(state, { recipient_id: currentUserId, type: 'life_team_reply', title: 'Sarah suggested an electrician', body: 'Sarah Chen suggested Ibrahim Khan. Add him in one tap.', reference_id: electricianAsk.id });
     state.sampleDataLoaded = true;
     await save(state);
     return state;

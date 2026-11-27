@@ -70,6 +70,8 @@ export default function RootLayout() {
           <Stack.Screen name="request-service" options={{ title: 'Request a quote', presentation: 'modal' }} />
           <Stack.Screen name="review" options={{ title: 'Leave a review', presentation: 'modal' }} />
           <Stack.Screen name="notification-settings" options={{ title: 'Notifications' }} />
+          <Stack.Screen name="life-team/[id]" options={{ title: 'Life Team' }} />
+          <Stack.Screen name="life-team/browse" options={{ title: 'Browse' }} />
           <Stack.Screen name="connect" options={{ title: 'Connect', presentation: 'modal' }} />
         </Stack>
       </AuthGate>

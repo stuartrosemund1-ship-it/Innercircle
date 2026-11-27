@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Screen } from '@/components/ui/Screen';
 import { LoadingState } from '@/components/ui/LoadingState';
@@ -9,6 +9,10 @@ import { Avatar } from '@/components/ui/Avatar';
 import { TrustBadge } from '@/components/ui/TrustBadge';
 import { VerifiedBadge } from '@/components/ui/VerifiedBadge';
 import { CircleGraph } from '@/components/circle/CircleGraph';
+import { LifeTeamGrid } from '@/components/circle/LifeTeamGrid';
+import { TextField } from '@/components/ui/TextField';
+import { Button } from '@/components/ui/Button';
+import { api } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCircleData } from '@/hooks/useCircleData';
 import { applicationStatusLabel, isApprovedProfessional, isVerifiedProfessional } from '@/lib/application';
@@ -16,14 +20,16 @@ import { PriceRange } from '@/components/ui/PriceRange';
 import { colors, radii, spacing, typography } from '@/constants/theme';
 import type { TrustLabel } from '@/types';
 
-type Mode = 'people' | 'professionals' | 'shared';
+type Mode = 'life' | 'people' | 'professionals' | 'shared';
 type ViewMode = 'circle' | 'list';
 
 export default function CircleScreen() {
   const { user } = useAuth();
   const data = useCircleData();
   const router = useRouter();
-  const [mode, setMode] = useState<Mode>('people');
+  const [mode, setMode] = useState<Mode>('life');
+  const [customRole, setCustomRole] = useState('');
+  const [adding, setAdding] = useState(false);
   const [view, setView] = useState<ViewMode>('circle');
   const sharedPros = useMemo(() => {
     if (!user) return [];
@@ -37,6 +43,10 @@ export default function CircleScreen() {
     }
     return data.professionals.filter((p) => isApprovedProfessional(p) && (counts.get(p.id)?.size ?? 0) >= 2);
   }, [data.recommendations, data.professionals, data.people, user]);
+  useEffect(() => {
+    if (!user) return;
+    api.ensureLifeTeam(user.id).catch(() => undefined);
+  }, [user]);
   if (!user) return null;
   if (data.loading) return <LoadingState />;
   if (data.error) return <ErrorState message={data.error} onRetry={data.refresh} />;
@@ -53,14 +63,29 @@ export default function CircleScreen() {
   return (
     <Screen scroll onRefresh={data.refresh}>
       <Text style={styles.title}>My Circle</Text>
-      <Text style={styles.sub}>People you trust, and professionals you have chosen yourself.</Text>
+      <Text style={styles.sub}>Your Life Team is the people you would actually call. The #1 spot is earned, never bought.</Text>
       <View style={styles.segment}>
-        {(['people', 'professionals', 'shared'] as Mode[]).map((m) => (
+        {(['life', 'people', 'professionals', 'shared'] as Mode[]).map((m) => (
           <Pressable key={m} onPress={() => setMode(m)} style={[styles.segBtn, mode === m && styles.segBtnActive]}>
-            <Text style={[styles.segText, mode === m && styles.segTextActive]}>{m === 'people' ? 'People' : m === 'professionals' ? 'Professionals' : 'Shared'}</Text>
+            <Text style={[styles.segText, mode === m && styles.segTextActive]}>{m === 'life' ? 'Life Team' : m === 'people' ? 'People' : m === 'professionals' ? 'Pros' : 'Shared'}</Text>
           </Pressable>
         ))}
       </View>
+      {mode === 'life' ? (
+        <>
+          <LifeTeamGrid slots={data.lifeTeamSlots.filter((slot) => slot.owner_id === user.id)} picks={data.lifeTeamPicks} professionals={data.allProfessionals} onOpen={(slotId) => router.push(`/life-team/${slotId}`)} onAdd={() => setAdding(true)} />
+          {adding ? (
+            <View style={{ marginTop: spacing.md }}>
+              <TextField label="Custom profession" value={customRole} onChangeText={setCustomRole} placeholder="Gardener" />
+              <Button title="Add slot" onPress={async () => {
+                try { await api.addLifeTeamSlot(user.id, customRole); setCustomRole(''); setAdding(false); }
+                catch (error) { Alert.alert('Could not add', error instanceof Error ? error.message : 'Try again'); }
+              }} />
+            </View>
+          ) : null}
+        </>
+      ) : null}
+      {mode !== 'life' ? <>
       <View style={styles.viewToggle}>
         <Pressable onPress={() => setView('circle')} style={[styles.viewBtn, view === 'circle' && styles.viewBtnActive]}><Text style={styles.viewText}>Circle</Text></Pressable>
         <Pressable onPress={() => setView('list')} style={[styles.viewBtn, view === 'list' && styles.viewBtnActive]}><Text style={styles.viewText}>List</Text></Pressable>
@@ -102,6 +127,7 @@ export default function CircleScreen() {
             </Pressable>
           ))
       )}
+      </> : null}
     </Screen>
   );
 }

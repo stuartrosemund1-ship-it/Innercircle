@@ -1,5 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'expo-router';
+import { api } from '@/lib/api';
 import { Screen } from '@/components/ui/Screen';
 import { Button } from '@/components/ui/Button';
 import { LoadingState } from '@/components/ui/LoadingState';
@@ -13,6 +15,35 @@ import { isApprovedProfessional, isVerifiedProfessional } from '@/lib/applicatio
 import { colors, radii, shadows, spacing, typography } from '@/constants/theme';
 
 function firstName(full: string) { return full.split(' ')[0] || full; }
+
+function LifeTeamMeter({ userId, onOpen }: { userId: string; onOpen: () => void }) {
+  const [label, setLabel] = useState('');
+  const [nudge, setNudge] = useState('');
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      api.getState().then((state) => {
+        if (cancelled) return;
+        const slots = state.lifeTeamSlots.filter((slot) => slot.owner_id === userId && !slot.custom);
+        if (slots.length === 0) { setLabel(''); return; }
+        const filled = slots.filter((slot) => state.lifeTeamPicks.some((pick) => pick.slot_id === slot.id && pick.rank === 1)).length;
+        const next = slots.find((slot) => !state.lifeTeamPicks.some((pick) => pick.slot_id === slot.id && pick.rank === 1));
+        setLabel(`${filled} of ${slots.length} filled`);
+        setNudge(next ? `Next: ${next.profession.toLowerCase()}. Ask your circle.` : 'Your Life Team is full.');
+      });
+    };
+    load();
+    const unsubscribe = api.subscribe(load);
+    return () => { cancelled = true; unsubscribe(); };
+  }, [userId]);
+  if (!label) return null;
+  return (
+    <Pressable onPress={onOpen} style={styles.meter}>
+      <Text style={styles.meterTitle}>Life Team · {label}</Text>
+      <Text style={styles.cardBody}>{nudge}</Text>
+    </Pressable>
+  );
+}
 
 export default function HomeScreen() {
   const { user } = useAuth();
@@ -40,6 +71,7 @@ export default function HomeScreen() {
         <View style={styles.stat}><Text style={styles.statNum}>{data.personalTrusts.length}</Text><Text style={styles.statLabel}>Trusted pros</Text></View>
         <View style={styles.stat}><Text style={styles.statNum}>{data.pendingIncoming.length}</Text><Text style={styles.statLabel}>Invites</Text></View>
       </View>
+      <LifeTeamMeter userId={user.id} onOpen={() => router.push('/(tabs)/circle')} />
       <Text style={styles.section}>Quick actions</Text>
       <Button title="Add a Person" variant="secondary" onPress={() => router.push('/add-person')} />
       <Button title="Apply as a professional" onPress={() => router.push('/add-professional')} style={styles.actionGap} />
@@ -98,6 +130,8 @@ const styles = StyleSheet.create({
   stat: { flex: 1, alignItems: 'center' },
   statNum: { ...typography.h2, color: colors.brand.purple },
   statLabel: { ...typography.caption, color: colors.text.muted },
+  meter: { backgroundColor: colors.brand.purpleSoft, borderRadius: radii.lg, padding: spacing.md, marginBottom: spacing.md },
+  meterTitle: { ...typography.h3, color: colors.brand.purpleDeep },
   section: { ...typography.h3, color: colors.text.primary, marginBottom: spacing.sm, marginTop: spacing.md },
   actionGap: { marginTop: spacing.sm },
   card: { backgroundColor: colors.surface.card, borderRadius: radii.md, padding: spacing.md, marginBottom: spacing.sm, borderWidth: 1, borderColor: colors.surface.border },

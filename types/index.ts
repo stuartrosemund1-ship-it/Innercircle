@@ -7,7 +7,8 @@ export type NotificationType =
   | 'connection_request' | 'connection_accepted' | 'recommendation_shared'
   | 'introduction_request' | 'introduction_accepted' | 'introduction_declined'
   | 'message' | 'invitation_accepted' | 'reference_request'
-  | 'service_request' | 'service_request_update' | 'application_update' | 'report_resolved';
+  | 'service_request' | 'service_request_update' | 'application_update' | 'report_resolved'
+  | 'life_team_ask' | 'life_team_reply';
 export type ServiceRequestStatus = 'pending' | 'accepted' | 'declined' | 'proposed' | 'completed' | 'cancelled';
 export type ApplicationStatus = 'draft' | 'pending' | 'approved' | 'rejected';
 export type PricingUnit = 'per_hour' | 'per_session' | 'per_project' | 'fixed';
@@ -68,6 +69,7 @@ export interface Professional {
   price_min: number | null; price_max: number | null; currency: PriceCurrency;
   pricing_unit: PricingUnit | null; pricing_notes: string | null;
   qualifications: string[]; portfolio: PortfolioItem[]; typical_response_time: string | null;
+  life_role: string | null;
   verification_status: 'unverified' | 'pending' | 'verified';
   is_verified: boolean; verified_at: string | null; created_at: string;
 }
@@ -117,6 +119,19 @@ export interface ServiceRequest {
 export interface ProfessionalReview {
   id: string; professional_id: string; author_id: string; rating: number; body: string;
   owner_reply: string | null; replied_at: string | null; created_at: string;
+}
+export type LifeTeamRank = 1 | 2 | 3;
+export interface LifeTeamSlot {
+  id: string; owner_id: string; profession: string; custom: boolean; created_at: string;
+}
+export interface LifeTeamPick {
+  id: string; slot_id: string; professional_id: string; rank: LifeTeamRank; created_at: string;
+}
+export interface LifeTeamAsk {
+  id: string; slot_id: string; asker_id: string; profession: string; status: 'open' | 'closed'; created_at: string;
+}
+export interface LifeTeamReply {
+  id: string; ask_id: string; replier_id: string; professional_id: string; note: string | null; created_at: string;
 }
 export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   requests: true, introductions: true, references: true, applications: true, reports: true,

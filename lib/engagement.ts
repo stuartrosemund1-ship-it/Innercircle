@@ -1,7 +1,7 @@
 import type { NotificationPreferences, NotificationType, ProfessionalReview, ServiceRequest } from '@/types';
 
 export function preferenceFor(type: NotificationType): keyof NotificationPreferences | null {
-  if (type === 'service_request' || type === 'service_request_update') return 'requests';
+  if (type === 'service_request' || type === 'service_request_update' || type === 'life_team_ask' || type === 'life_team_reply') return 'requests';
   if (type === 'introduction_request' || type === 'introduction_accepted' || type === 'introduction_declined') return 'introductions';
   if (type === 'reference_request') return 'references';
   if (type === 'application_update') return 'applications';

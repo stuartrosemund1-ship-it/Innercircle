@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import type { Connection, IntroductionRequest, PersonalTrust, Professional, ProfessionalRecommendation, Profile, AppNotification } from '@/types';
+import type { Connection, IntroductionRequest, LifeTeamAsk, LifeTeamPick, LifeTeamReply, LifeTeamSlot, PersonalTrust, Professional, ProfessionalRecommendation, Profile, AppNotification } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
 
 export function useCircleData() {
@@ -12,6 +12,11 @@ export function useCircleData() {
   const [personalTrusts, setPersonalTrusts] = useState<PersonalTrust[]>([]);
   const [introductions, setIntroductions] = useState<IntroductionRequest[]>([]);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [allProfessionals, setAllProfessionals] = useState<Professional[]>([]);
+  const [lifeTeamSlots, setLifeTeamSlots] = useState<LifeTeamSlot[]>([]);
+  const [lifeTeamPicks, setLifeTeamPicks] = useState<LifeTeamPick[]>([]);
+  const [lifeTeamAsks, setLifeTeamAsks] = useState<LifeTeamAsk[]>([]);
+  const [lifeTeamReplies, setLifeTeamReplies] = useState<LifeTeamReply[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -37,6 +42,11 @@ export function useCircleData() {
         ...state.professionals.filter((p) => p.created_by === user.id).map((p) => p.id),
       ]);
       setProfessionals(state.professionals.filter((p) => proIds.has(p.id)));
+      setAllProfessionals(state.professionals);
+      setLifeTeamSlots(state.lifeTeamSlots);
+      setLifeTeamPicks(state.lifeTeamPicks);
+      setLifeTeamAsks(state.lifeTeamAsks);
+      setLifeTeamReplies(state.lifeTeamReplies);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load circle data');
     } finally { setLoading(false); }
@@ -48,5 +58,5 @@ export function useCircleData() {
   }, [refresh]);
 
   const pendingIncoming = connections.filter((c) => c.status === 'pending' && user && c.recipient_id === user.id);
-  return { connections, people, professionals, recommendations, personalTrusts, introductions, notifications, pendingIncoming, loading, error, refresh };
+  return { connections, people, professionals, allProfessionals, recommendations, personalTrusts, introductions, notifications, lifeTeamSlots, lifeTeamPicks, lifeTeamAsks, lifeTeamReplies, pendingIncoming, loading, error, refresh };
 }

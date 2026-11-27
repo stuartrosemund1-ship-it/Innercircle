@@ -4,14 +4,15 @@ import { clearPasswordRecovery } from '@/lib/supabase/linking';
 import { applicationIssues, assertPriceOrder, isApprovedProfessional } from '@/lib/application';
 import {
   DEFAULT_NOTIFICATION_PREFERENCES, DEFAULT_PRIVACY, type AppNotification, type Connection, type Conversation, type ConversationMember,
-  type IntroductionRequest, type Invitation, type Message, type NotificationType, type PersonalTrust,
+  type IntroductionRequest, type Invitation, type LifeTeamAsk, type LifeTeamPick, type LifeTeamRank, type LifeTeamReply, type LifeTeamSlot, type Message, type NotificationType, type PersonalTrust,
   type PriceCurrency, type PricingUnit, type PrivacySettings, type Professional, type ProfessionalApplicationInput,
   type ProfessionalRecommendation, type ProfessionalReference, type ProfessionalReview, type Profile, type Report, type ReportReason, type ReportTargetType, type ServiceRequest,
 } from '@/types';
 import { budgetFits, deliverExternalNotification } from '@/lib/engagement';
+import { LIFE_TEAM_ROLES } from '@/lib/lifeTeam';
 
 const PROFILE_COLUMNS = 'id, email, full_name, avatar_url, bio, city, interests, privacy, notification_preferences, onboarding_completed, is_admin, terms_accepted_at, created_at';
-const PROFESSIONAL_COLUMNS = 'id, owner_user_id, created_by, name, category, bio, location, experience, availability, avatar_url, years_experience, licence_number, licence_issuer, service_area, photo_id_path, insurance_doc_path, qualification_doc_path, conduct_accepted_at, application_status, application_rejection_reason, application_submitted_at, application_reviewed_at, price_min, price_max, currency, pricing_unit, pricing_notes, qualifications, portfolio, typical_response_time, verification_status, is_verified, verified_at, created_at';
+const PROFESSIONAL_COLUMNS = 'id, owner_user_id, created_by, name, category, bio, location, experience, availability, avatar_url, years_experience, licence_number, licence_issuer, service_area, photo_id_path, insurance_doc_path, qualification_doc_path, conduct_accepted_at, application_status, application_rejection_reason, application_submitted_at, application_reviewed_at, price_min, price_max, currency, pricing_unit, pricing_notes, qualifications, portfolio, typical_response_time, life_role, verification_status, is_verified, verified_at, created_at';
 const REFERENCE_COLUMNS = 'id, professional_id, applicant_id, referee_id, status, note, created_at, responded_at';
 const REPORT_COLUMNS = 'id, reporter_id, target_type, target_profile_id, target_professional_id, reason, details, status, resolution_note, created_at, resolved_at, resolved_by';
 const CONTACT_COLUMNS = 'professional_id, contact_email, contact_phone, website';
@@ -32,6 +33,10 @@ export interface AppSnapshot {
   reports: Report[];
   serviceRequests: ServiceRequest[];
   reviews: ProfessionalReview[];
+  lifeTeamSlots: LifeTeamSlot[];
+  lifeTeamPicks: LifeTeamPick[];
+  lifeTeamAsks: LifeTeamAsk[];
+  lifeTeamReplies: LifeTeamReply[];
 }
 
 const listeners = new Set<() => void>();
@@ -124,6 +129,7 @@ function mapProfessional(row: Omit<Professional, 'website' | 'contact_email' | '
     qualifications: row.qualifications ?? [],
     portfolio: Array.isArray(row.portfolio) ? row.portfolio : [],
     typical_response_time: row.typical_response_time ?? null,
+    life_role: row.life_role ?? null,
     is_verified: Boolean(row.is_verified),
     verified_at: row.verified_at ?? null,
     bio: row.bio ?? null,
@@ -174,6 +180,7 @@ async function loadSnapshot(): Promise<AppSnapshot> {
   const [
     profiles, connections, professionals, references, recommendations, personalTrusts, introductions,
     conversations, conversationMembers, messages, invitations, notifications, reports, serviceRequests, reviews,
+    lifeTeamSlots, lifeTeamPicks, lifeTeamAsks, lifeTeamReplies,
   ] = await Promise.all([
     db().from('profiles').select(PROFILE_COLUMNS),
     db().from('connections').select('id, requester_id, recipient_id, status, created_at, updated_at'),
@@ -190,8 +197,12 @@ async function loadSnapshot(): Promise<AppSnapshot> {
     db().from('reports').select(REPORT_COLUMNS).order('created_at', { ascending: false }),
     db().from('service_requests').select('id, professional_id, member_id, service_needed, preferred_dates, location, budget, notes, status, proposed_time, created_at, updated_at'),
     db().from('professional_reviews').select('id, professional_id, author_id, rating, body, owner_reply, replied_at, created_at'),
+    db().from('life_team_slots').select('id, owner_id, profession, custom, created_at'),
+    db().from('life_team_picks').select('id, slot_id, professional_id, rank, created_at'),
+    db().from('life_team_asks').select('id, slot_id, asker_id, profession, status, created_at'),
+    db().from('life_team_replies').select('id, ask_id, replier_id, professional_id, note, created_at'),
   ]);
-  for (const result of [profiles, connections, references, recommendations, personalTrusts, introductions, conversations, conversationMembers, messages, invitations, notifications, reports, serviceRequests, reviews]) {
+  for (const result of [profiles, connections, references, recommendations, personalTrusts, introductions, conversations, conversationMembers, messages, invitations, notifications, reports, serviceRequests, reviews, lifeTeamSlots, lifeTeamPicks, lifeTeamAsks, lifeTeamReplies]) {
     fail(result.error);
   }
   return {
@@ -210,6 +221,10 @@ async function loadSnapshot(): Promise<AppSnapshot> {
     reports: (reports.data ?? []) as Report[],
     serviceRequests: (serviceRequests.data ?? []) as ServiceRequest[],
     reviews: (reviews.data ?? []) as ProfessionalReview[],
+    lifeTeamSlots: (lifeTeamSlots.data ?? []) as LifeTeamSlot[],
+    lifeTeamPicks: (lifeTeamPicks.data ?? []) as LifeTeamPick[],
+    lifeTeamAsks: (lifeTeamAsks.data ?? []) as LifeTeamAsk[],
+    lifeTeamReplies: (lifeTeamReplies.data ?? []) as LifeTeamReply[],
   };
 }
 
@@ -719,6 +734,86 @@ export const supabaseApi = {
     fail(error);
     emit();
     return data as ProfessionalReview;
+  },
+  async ensureLifeTeam(userId: string) {
+    await assertSelf(userId);
+    const existing = await db().from('life_team_slots').select('id').eq('owner_id', userId);
+    fail(existing.error);
+    if ((existing.data ?? []).length > 0) return;
+    const { error } = await db().from('life_team_slots').insert(LIFE_TEAM_ROLES.map((profession) => ({ owner_id: userId, profession, custom: false })));
+    fail(error);
+    emit();
+  },
+  async addLifeTeamSlot(userId: string, profession: string) {
+    await assertSelf(userId);
+    const { error } = await db().from('life_team_slots').insert({ owner_id: userId, profession: profession.trim(), custom: true });
+    fail(error);
+    emit();
+  },
+  async setLifeTeamPick(userId: string, slotId: string, professionalId: string, rank?: LifeTeamRank) {
+    await assertSelf(userId);
+    const current = await db().from('life_team_picks').select('rank').eq('slot_id', slotId);
+    fail(current.error);
+    const used = (current.data ?? []).map((row) => row.rank as number);
+    const next = rank ?? (used.length === 0 ? 1 : Math.max(...used) + 1);
+    const { error } = await db().from('life_team_picks').insert({ slot_id: slotId, professional_id: professionalId, rank: next });
+    fail(error);
+    emit();
+  },
+  async moveLifeTeamPick(userId: string, slotId: string, professionalId: string, direction: 'up' | 'down') {
+    await assertSelf(userId);
+    const current = await db().from('life_team_picks').select('id, professional_id, rank').eq('slot_id', slotId).order('rank');
+    fail(current.error);
+    const rows = current.data ?? [];
+    const index = rows.findIndex((row) => row.professional_id === professionalId);
+    const swapWith = direction === 'up' ? index - 1 : index + 1;
+    if (index < 0 || swapWith < 0 || swapWith >= rows.length) return;
+    const a = rows[index];
+    const b = rows[swapWith];
+    const removed = await db().from('life_team_picks').delete().in('id', [a.id, b.id]);
+    fail(removed.error);
+    const inserted = await db().from('life_team_picks').insert([
+      { slot_id: slotId, professional_id: a.professional_id, rank: b.rank },
+      { slot_id: slotId, professional_id: b.professional_id, rank: a.rank },
+    ]);
+    fail(inserted.error);
+    emit();
+  },
+  async removeLifeTeamPick(userId: string, slotId: string, professionalId: string) {
+    await assertSelf(userId);
+    const { error } = await db().from('life_team_picks').delete().eq('slot_id', slotId).eq('professional_id', professionalId);
+    fail(error);
+    emit();
+  },
+  async askLifeTeam(userId: string, slotId: string) {
+    await assertSelf(userId);
+    const slot = await db().from('life_team_slots').select('profession').eq('id', slotId).maybeSingle();
+    fail(slot.error);
+    if (!slot.data) throw new Error('Slot not found');
+    const { data, error } = await db().from('life_team_asks').insert({ slot_id: slotId, asker_id: userId, profession: slot.data.profession, status: 'open' }).select('id').single();
+    fail(error);
+    const name = await profileName(userId);
+    const connections = await db().from('connections').select('requester_id, recipient_id, status');
+    fail(connections.error);
+    for (const connection of connections.data ?? []) {
+      if (connection.status !== 'accepted') continue;
+      if (connection.requester_id !== userId && connection.recipient_id !== userId) continue;
+      const other = connection.requester_id === userId ? connection.recipient_id : connection.requester_id;
+      try { await notify(other, 'life_team_ask', `Who's your ${String(slot.data.profession).toLowerCase()}?`, `${name} asked who you trust.`, data?.id ?? null); } catch { /* connection may not be notifiable */ }
+    }
+    emit();
+  },
+  async replyLifeTeamAsk(userId: string, askId: string, professionalId: string) {
+    await assertSelf(userId);
+    const { data, error } = await db().from('life_team_replies').insert({ ask_id: askId, replier_id: userId, professional_id: professionalId }).select('id').single();
+    fail(error);
+    const ask = await db().from('life_team_asks').select('asker_id, profession').eq('id', askId).maybeSingle();
+    fail(ask.error);
+    if (ask.data) {
+      const name = await profileName(userId);
+      try { await notify(ask.data.asker_id, 'life_team_reply', 'A Life Team suggestion', `${name} suggested someone for your ${ask.data.profession}.`, data?.id ?? null); } catch { /* asker notified in app when possible */ }
+    }
+    emit();
   },
   async setDemoAdmin(_userId: string, _enabled: boolean) {
     throw new Error('Admin access is granted in the database, not in the app.');

@@ -10,6 +10,7 @@ import { VerifiedBadge } from '@/components/ui/VerifiedBadge';
 import { PriceRange } from '@/components/ui/PriceRange';
 import { StarRating } from '@/components/ui/StarRating';
 import { Logo } from '@/components/brand/Logo';
+import { LifeTeamProofCard } from '@/components/circle/LifeTeamProofCard';
 import { averageRating } from '@/lib/engagement';
 import { LoadingState } from '@/components/ui/LoadingState';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -95,6 +96,7 @@ export default function ProfessionalDetailScreen() {
         {pro.pricing_notes ? <Text style={styles.meta}>{pro.pricing_notes}</Text> : null}
         {isApprovedProfessional(pro) ? <TrustBadge label={label} /> : null}
       </View>
+      {isApprovedProfessional(pro) ? <LifeTeamProofCard professionalId={pro.id} viewerId={user.id} isOwner={isApplicant} /> : null}
       {isApplicant && pro.application_status !== 'approved' ? (
         <View style={[styles.card, styles.pending]}>
           <Text style={styles.label}>{applicationStatusLabel(pro.application_status)}</Text>
