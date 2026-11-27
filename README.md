@@ -46,6 +46,8 @@ where name = 'Example Name'
 
 `verified_at` is filled in when `is_verified` becomes true. Reject an application with `application_status = 'rejected'` and `application_rejection_reason`.
 
+`007_job_media.sql` adds the completed-job gallery. It is committed only and has not been applied. Photos and mp4 files belong in the private `job-media` bucket. A job linked to a booking stays hidden until the customer agrees.
+
 `006_life_team.sql` adds profession slots, #1 and backup picks, and circle asks. It is committed only and has not been applied to the hosted database. A #1 place is chosen by the member and cannot be bought.
 
 `005_reviews_and_requests.sql` adds quote requests, reviews, profile extras, and notification preferences. It is committed only and has not been applied to the hosted database.

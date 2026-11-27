@@ -96,6 +96,7 @@ export default function AdminHomeScreen() {
               <Text style={styles.muted}>{names[report.reporter_id] ?? 'A member'} reported {report.target_type} {names[targetId] ?? ''}</Text>
               {report.details ? <Text style={styles.body}>{report.details}</Text> : null}
               <View style={styles.actions}>
+                {report.target_media_id ? <Button title="Remove media" variant="danger" onPress={async () => { await api.adminRemoveJobMedia(user.id, report.target_media_id!); await closeReport(report.id, 'resolved'); }} style={styles.action} /> : null}
                 <Button title="Resolve" variant="teal" onPress={() => closeReport(report.id, 'resolved')} style={styles.action} />
                 <Button title="Dismiss" variant="secondary" onPress={() => closeReport(report.id, 'dismissed')} style={styles.action} />
               </View>

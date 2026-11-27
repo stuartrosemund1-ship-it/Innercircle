@@ -72,6 +72,8 @@ export default function RootLayout() {
           <Stack.Screen name="notification-settings" options={{ title: 'Notifications' }} />
           <Stack.Screen name="life-team/[id]" options={{ title: 'Life Team' }} />
           <Stack.Screen name="life-team/browse" options={{ title: 'Browse' }} />
+          <Stack.Screen name="job-media/[id]" options={{ title: 'Job' }} />
+          <Stack.Screen name="add-job-media" options={{ title: 'Add a job', presentation: 'modal' }} />
           <Stack.Screen name="connect" options={{ title: 'Connect', presentation: 'modal' }} />
         </Stack>
       </AuthGate>

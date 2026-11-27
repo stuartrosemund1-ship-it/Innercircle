@@ -4,7 +4,7 @@ import { clearPasswordRecovery } from '@/lib/supabase/linking';
 import { applicationIssues, assertPriceOrder, isApprovedProfessional } from '@/lib/application';
 import {
   DEFAULT_NOTIFICATION_PREFERENCES, DEFAULT_PRIVACY, type AppNotification, type Connection, type Conversation, type ConversationMember,
-  type IntroductionRequest, type Invitation, type LifeTeamAsk, type LifeTeamPick, type LifeTeamRank, type LifeTeamReply, type LifeTeamSlot, type Message, type NotificationType, type PersonalTrust,
+  type IntroductionRequest, type Invitation, type JobMedia, type LifeTeamAsk, type LifeTeamPick, type LifeTeamRank, type LifeTeamReply, type LifeTeamSlot, type Message, type NotificationType, type PersonalTrust,
   type PriceCurrency, type PricingUnit, type PrivacySettings, type Professional, type ProfessionalApplicationInput,
   type ProfessionalRecommendation, type ProfessionalReference, type ProfessionalReview, type Profile, type Report, type ReportReason, type ReportTargetType, type ServiceRequest,
 } from '@/types';
@@ -14,7 +14,7 @@ import { LIFE_TEAM_ROLES } from '@/lib/lifeTeam';
 const PROFILE_COLUMNS = 'id, email, full_name, avatar_url, bio, city, interests, privacy, notification_preferences, onboarding_completed, is_admin, terms_accepted_at, created_at';
 const PROFESSIONAL_COLUMNS = 'id, owner_user_id, created_by, name, category, bio, location, experience, availability, avatar_url, years_experience, licence_number, licence_issuer, service_area, photo_id_path, insurance_doc_path, qualification_doc_path, conduct_accepted_at, application_status, application_rejection_reason, application_submitted_at, application_reviewed_at, price_min, price_max, currency, pricing_unit, pricing_notes, qualifications, portfolio, typical_response_time, life_role, verification_status, is_verified, verified_at, created_at';
 const REFERENCE_COLUMNS = 'id, professional_id, applicant_id, referee_id, status, note, created_at, responded_at';
-const REPORT_COLUMNS = 'id, reporter_id, target_type, target_profile_id, target_professional_id, reason, details, status, resolution_note, created_at, resolved_at, resolved_by';
+const REPORT_COLUMNS = 'id, reporter_id, target_type, target_profile_id, target_professional_id, target_media_id, reason, details, status, resolution_note, created_at, resolved_at, resolved_by';
 const CONTACT_COLUMNS = 'professional_id, contact_email, contact_phone, website';
 
 export interface AppSnapshot {
@@ -37,6 +37,7 @@ export interface AppSnapshot {
   lifeTeamPicks: LifeTeamPick[];
   lifeTeamAsks: LifeTeamAsk[];
   lifeTeamReplies: LifeTeamReply[];
+  jobMedia: JobMedia[];
 }
 
 const listeners = new Set<() => void>();
@@ -180,7 +181,7 @@ async function loadSnapshot(): Promise<AppSnapshot> {
   const [
     profiles, connections, professionals, references, recommendations, personalTrusts, introductions,
     conversations, conversationMembers, messages, invitations, notifications, reports, serviceRequests, reviews,
-    lifeTeamSlots, lifeTeamPicks, lifeTeamAsks, lifeTeamReplies,
+    lifeTeamSlots, lifeTeamPicks, lifeTeamAsks, lifeTeamReplies, jobMedia,
   ] = await Promise.all([
     db().from('profiles').select(PROFILE_COLUMNS),
     db().from('connections').select('id, requester_id, recipient_id, status, created_at, updated_at'),
@@ -201,8 +202,9 @@ async function loadSnapshot(): Promise<AppSnapshot> {
     db().from('life_team_picks').select('id, slot_id, professional_id, rank, created_at'),
     db().from('life_team_asks').select('id, slot_id, asker_id, profession, status, created_at'),
     db().from('life_team_replies').select('id, ask_id, replier_id, professional_id, note, created_at'),
+    db().from('job_media').select('id, professional_id, service_request_id, review_id, uploaded_by, kind, template, title, location_area, job_date, summary_text, media_path, before_path, duration_seconds, consent_status, created_at'),
   ]);
-  for (const result of [profiles, connections, references, recommendations, personalTrusts, introductions, conversations, conversationMembers, messages, invitations, notifications, reports, serviceRequests, reviews, lifeTeamSlots, lifeTeamPicks, lifeTeamAsks, lifeTeamReplies]) {
+  for (const result of [profiles, connections, references, recommendations, personalTrusts, introductions, conversations, conversationMembers, messages, invitations, notifications, reports, serviceRequests, reviews, lifeTeamSlots, lifeTeamPicks, lifeTeamAsks, lifeTeamReplies, jobMedia]) {
     fail(result.error);
   }
   return {
@@ -225,6 +227,7 @@ async function loadSnapshot(): Promise<AppSnapshot> {
     lifeTeamPicks: (lifeTeamPicks.data ?? []) as LifeTeamPick[],
     lifeTeamAsks: (lifeTeamAsks.data ?? []) as LifeTeamAsk[],
     lifeTeamReplies: (lifeTeamReplies.data ?? []) as LifeTeamReply[],
+    jobMedia: (jobMedia.data ?? []) as JobMedia[],
   };
 }
 
@@ -815,6 +818,25 @@ export const supabaseApi = {
     }
     emit();
   },
+  async addJobMedia(userId: string, input: Omit<JobMedia, 'id' | 'uploaded_by' | 'consent_status' | 'created_at'>) {
+    await assertSelf(userId);
+    const { data, error } = await db().from('job_media').insert({ ...input, uploaded_by: userId }).select('id, professional_id, service_request_id, review_id, uploaded_by, kind, template, title, location_area, job_date, summary_text, media_path, before_path, duration_seconds, consent_status, created_at').single();
+    fail(error);
+    emit();
+    return data as JobMedia;
+  },
+  async consentJobMedia(userId: string, mediaId: string, approve: boolean) {
+    await assertSelf(userId);
+    const { error } = await db().from('job_media').update({ consent_status: approve ? 'approved' : 'declined' }).eq('id', mediaId);
+    fail(error);
+    emit();
+  },
+  async adminRemoveJobMedia(userId: string, mediaId: string) {
+    await assertSelf(userId);
+    const { error } = await db().rpc('admin_remove_job_media', { p_media_id: mediaId });
+    fail(error);
+    emit();
+  },
   async setDemoAdmin(_userId: string, _enabled: boolean) {
     throw new Error('Admin access is granted in the database, not in the app.');
   },
@@ -825,6 +847,7 @@ export const supabaseApi = {
       target_type: input.targetType,
       target_profile_id: input.targetType === 'person' ? input.targetId : null,
       target_professional_id: input.targetType === 'professional' ? input.targetId : null,
+      target_media_id: input.targetType === 'job_media' ? input.targetId : null,
       reason: input.reason,
       details: input.details?.trim() || null,
       status: 'open',

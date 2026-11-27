@@ -11,6 +11,7 @@ import { PriceRange } from '@/components/ui/PriceRange';
 import { StarRating } from '@/components/ui/StarRating';
 import { Logo } from '@/components/brand/Logo';
 import { LifeTeamProofCard } from '@/components/circle/LifeTeamProofCard';
+import { JobGallery } from '@/components/professional/JobGallery';
 import { averageRating } from '@/lib/engagement';
 import { LoadingState } from '@/components/ui/LoadingState';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -97,6 +98,7 @@ export default function ProfessionalDetailScreen() {
         {isApprovedProfessional(pro) ? <TrustBadge label={label} /> : null}
       </View>
       {isApprovedProfessional(pro) ? <LifeTeamProofCard professionalId={pro.id} viewerId={user.id} isOwner={isApplicant} /> : null}
+      <JobGallery professionalId={pro.id} viewerId={user.id} isOwner={isApplicant} />
       {isApplicant && pro.application_status !== 'approved' ? (
         <View style={[styles.card, styles.pending]}>
           <Text style={styles.label}>{applicationStatusLabel(pro.application_status)}</Text>
@@ -143,6 +145,7 @@ export default function ProfessionalDetailScreen() {
             <Text style={styles.body}>{profiles.find((profile) => profile.id === review.author_id)?.full_name ?? 'Member'} · {review.rating}/5</Text>
             <Text style={styles.muted}>{review.body}</Text>
             {review.owner_reply ? <Text style={styles.reply}>Reply: {review.owner_reply}</Text> : null}
+            {review.author_id === user.id ? <Button title="Add a photo to this review" variant="ghost" onPress={() => router.push({ pathname: '/add-job-media', params: { professionalId: pro.id, reviewId: review.id } })} /> : null}
           </View>
         ))}
         {canReview && !alreadyReviewed ? <Button title="Leave a review" variant="secondary" onPress={() => router.push({ pathname: '/review', params: { professionalId: pro.id } })} /> : null}

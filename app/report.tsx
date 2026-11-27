@@ -17,10 +17,10 @@ export default function ReportScreen() {
   const [reason, setReason] = useState<ReportReason>('harassment');
   const [details, setDetails] = useState('');
   const [loading, setLoading] = useState(false);
-  if (!user || !id || (type !== 'person' && type !== 'professional')) return null;
+  if (!user || !id || (type !== 'person' && type !== 'professional' && type !== 'job_media')) return null;
   return (
     <Screen scroll>
-      <Text style={styles.title}>Report this {type === 'person' ? 'person' : 'professional'}</Text>
+      <Text style={styles.title}>Report this {type === 'person' ? 'person' : type === 'job_media' ? 'job photo' : 'professional'}</Text>
       <Text style={styles.sub}>Choose the closest reason. An admin can see the report. The other person is not told you sent it.</Text>
       {REPORT_REASONS.map((item) => (
         <Pressable key={item.value} onPress={() => setReason(item.value)} style={[styles.option, reason === item.value && styles.optionActive]}>

@@ -35,7 +35,10 @@ export interface PrivacySettings {
   acceptIntroductions: boolean;
   showProfessionalRelationships: 'connections' | 'none';
 }
-export type ReportTargetType = 'person' | 'professional';
+export type ReportTargetType = 'person' | 'professional' | 'job_media';
+export type JobMediaKind = 'image' | 'video' | 'summary';
+export type JobMediaTemplate = 'before_after' | 'progress' | 'case_summary' | 'portfolio';
+export type MediaConsent = 'pending' | 'approved' | 'declined';
 export type ReportReason = 'harassment' | 'spam_or_scam' | 'false_credentials' | 'inappropriate_content' | 'safety' | 'other';
 export type ReportStatus = 'open' | 'resolved' | 'dismissed';
 export interface Profile {
@@ -47,7 +50,7 @@ export interface Profile {
 }
 export interface Report {
   id: string; reporter_id: string; target_type: ReportTargetType;
-  target_profile_id: string | null; target_professional_id: string | null;
+  target_profile_id: string | null; target_professional_id: string | null; target_media_id: string | null;
   reason: ReportReason; details: string | null; status: ReportStatus;
   resolution_note: string | null; created_at: string; resolved_at: string | null;
   resolved_by: string | null;
@@ -110,6 +113,13 @@ export interface Invitation {
 export interface AppNotification {
   id: string; recipient_id: string; type: NotificationType; title: string; body: string;
   reference_id: string | null; read_at: string | null; created_at: string;
+}
+export interface JobMedia {
+  id: string; professional_id: string; service_request_id: string | null; review_id: string | null;
+  uploaded_by: string; kind: JobMediaKind; template: JobMediaTemplate; title: string;
+  location_area: string | null; job_date: string | null; summary_text: string | null;
+  media_path: string | null; before_path: string | null; duration_seconds: number | null;
+  consent_status: MediaConsent; created_at: string;
 }
 export interface ServiceRequest {
   id: string; professional_id: string; member_id: string; service_needed: string;

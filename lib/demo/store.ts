@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   AppNotification, Connection, Conversation, ConversationMember, DEFAULT_NOTIFICATION_PREFERENCES, DEFAULT_PRIVACY,
-  IntroductionRequest, Invitation, Message, PersonalTrust, PrivacySettings,
+  IntroductionRequest, Invitation, JobMedia, Message, PersonalTrust, PrivacySettings,
   LifeTeamAsk, LifeTeamPick, LifeTeamRank, LifeTeamReply, LifeTeamSlot, Professional, ProfessionalApplicationInput, ProfessionalRecommendation, ProfessionalReference, ProfessionalReview, Profile, Report, ReportReason, ReportTargetType, ServiceRequest,
 } from '@/types';
 import { applicationIssues, assertPriceOrder, isApprovedProfessional } from '@/lib/application';
@@ -9,10 +9,10 @@ import { allowsNotification, budgetFits, deliverExternalNotification } from '@/l
 import { LIFE_TEAM_ROLES } from '@/lib/lifeTeam';
 import { createId, hashToken, nowIso } from '@/lib/id';
 
-const STORAGE_KEY = 'lifecircle.demo.v5';
+const STORAGE_KEY = 'lifecircle.demo.v6';
 
 export interface DemoState {
-  version: 5;
+  version: 6;
   environment: 'development-demo';
   currentUserId: string | null;
   sessionPasswordByEmail: Record<string, string>;
@@ -35,16 +35,17 @@ export interface DemoState {
   lifeTeamPicks: LifeTeamPick[];
   lifeTeamAsks: LifeTeamAsk[];
   lifeTeamReplies: LifeTeamReply[];
+  jobMedia: JobMedia[];
   sampleDataLoaded: boolean;
 }
 
 function emptyState(): DemoState {
   return {
-    version: 5, environment: 'development-demo', currentUserId: null,
+    version: 6, environment: 'development-demo', currentUserId: null,
     sessionPasswordByEmail: {}, profiles: [], connections: [], professionals: [],
     references: [], recommendations: [], personalTrusts: [], introductions: [], conversations: [],
     conversationMembers: [], messages: [],     invitations: [], notifications: [], reports: [], serviceRequests: [], reviews: [],
-    lifeTeamSlots: [], lifeTeamPicks: [], lifeTeamAsks: [], lifeTeamReplies: [],
+    lifeTeamSlots: [], lifeTeamPicks: [], lifeTeamAsks: [], lifeTeamReplies: [], jobMedia: [],
     sampleDataLoaded: false,
   };
 }
@@ -63,7 +64,7 @@ export async function loadDemoState(): Promise<DemoState> {
     const raw = await AsyncStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as DemoState;
-      if (parsed.version === 5) {
+      if (parsed.version === 6) {
         parsed.references = parsed.references ?? [];
         parsed.reports = parsed.reports ?? [];
         parsed.serviceRequests = parsed.serviceRequests ?? [];
@@ -72,6 +73,7 @@ export async function loadDemoState(): Promise<DemoState> {
         parsed.lifeTeamPicks = parsed.lifeTeamPicks ?? [];
         parsed.lifeTeamAsks = parsed.lifeTeamAsks ?? [];
         parsed.lifeTeamReplies = parsed.lifeTeamReplies ?? [];
+        parsed.jobMedia = parsed.jobMedia ?? [];
         memory = parsed;
         return memory;
       }
@@ -190,10 +192,12 @@ export const demoApi = {
     if (input.targetType === 'person' && input.targetId === userId) throw new Error('You cannot report yourself.');
     if (input.targetType === 'person' && !state.profiles.some((profile) => profile.id === input.targetId)) throw new Error('Person not found');
     if (input.targetType === 'professional' && !state.professionals.some((professional) => professional.id === input.targetId)) throw new Error('Professional not found');
+    if (input.targetType === 'job_media' && !state.jobMedia.some((item) => item.id === input.targetId)) throw new Error('Media not found');
     const report: Report = {
       id: createId('report'), reporter_id: userId, target_type: input.targetType,
       target_profile_id: input.targetType === 'person' ? input.targetId : null,
-      target_professional_id: input.targetType === 'professional' ? input.targetId : null,
+      target_professional_id: input.targetType === 'professional' ? input.targetId : (input.targetType === 'job_media' ? state.jobMedia.find((item) => item.id === input.targetId)?.professional_id ?? null : null),
+      target_media_id: input.targetType === 'job_media' ? input.targetId : null,
       reason: input.reason, details: input.details?.trim() || null, status: 'open',
       resolution_note: null, created_at: nowIso(), resolved_at: null, resolved_by: null,
     };
@@ -708,6 +712,51 @@ export const demoApi = {
     if (state.currentUserId === userId) state.currentUserId = null;
     await save(state);
   },
+  async addJobMedia(userId: string, input: Omit<JobMedia, 'id' | 'uploaded_by' | 'consent_status' | 'created_at' | 'template'> & { template?: JobMedia['template'] }) {
+    const state = await loadDemoState();
+    const professional = state.professionals.find((item) => item.id === input.professional_id);
+    if (!professional) throw new Error('Professional not found');
+    const owns = professional.created_by === userId || professional.owner_user_id === userId;
+    const request = input.service_request_id ? state.serviceRequests.find((item) => item.id === input.service_request_id) : null;
+    if (input.service_request_id && (!request || request.status !== 'completed' || request.professional_id !== professional.id)) throw new Error('Link media to a completed job.');
+    const customer = request?.member_id === userId;
+    if (!owns && !customer) throw new Error('Not authorized');
+    if (input.kind === 'video' && (input.duration_seconds == null || input.duration_seconds > 60)) throw new Error('Videos must be 60 seconds or shorter.');
+    if (input.kind === 'summary' && !input.summary_text?.trim()) throw new Error('Write a case summary with no client names.');
+    const media: JobMedia = {
+      ...input,
+      id: createId('media'),
+      uploaded_by: userId,
+      template: input.template ?? 'portfolio',
+      summary_text: input.summary_text?.trim() || null,
+      consent_status: customer || !input.service_request_id ? 'approved' : 'pending',
+      created_at: nowIso(),
+    };
+    state.jobMedia.push(media);
+    if (media.consent_status === 'pending' && request) {
+      pushNotification(state, { recipient_id: request.member_id, type: 'service_request_update', title: 'Approve job photos?', body: `${professional.name} wants to show a completed job. Nothing is public until you agree.`, reference_id: media.id });
+    }
+    await save(state);
+    return media;
+  },
+  async consentJobMedia(userId: string, mediaId: string, approve: boolean) {
+    const state = await loadDemoState();
+    const media = state.jobMedia.find((item) => item.id === mediaId);
+    if (!media || !media.service_request_id) throw new Error('Nothing to approve');
+    const request = state.serviceRequests.find((item) => item.id === media.service_request_id);
+    if (!request || request.member_id !== userId) throw new Error('Only the customer can approve this');
+    if (media.consent_status !== 'pending') throw new Error('This has already been decided');
+    media.consent_status = approve ? 'approved' : 'declined';
+    await save(state);
+    return media;
+  },
+  async adminRemoveJobMedia(userId: string, mediaId: string) {
+    const state = await loadDemoState();
+    const admin = state.profiles.find((profile) => profile.id === userId);
+    if (!admin?.is_admin) throw new Error('Not authorized');
+    state.jobMedia = state.jobMedia.filter((item) => item.id !== mediaId);
+    await save(state);
+  },
   async ensureLifeTeam(userId: string) {
     const state = await loadDemoState();
     const mine = state.lifeTeamSlots.filter((slot) => slot.owner_id === userId);
@@ -875,7 +924,7 @@ export const demoApi = {
     );
     state.reports.push({
       id: createId('report'), reporter_id: james.id, target_type: 'professional', target_profile_id: null, target_professional_id: morgan.id,
-      reason: 'false_credentials', details: 'Please check the registration number before approval.', status: 'open',
+      reason: 'false_credentials', details: 'Please check the registration number before approval.', status: 'open', target_media_id: null,
       resolution_note: null, created_at: reviewedAt, resolved_at: null, resolved_by: null,
     });
     state.references.push(
@@ -939,6 +988,17 @@ export const demoApi = {
     pushNotification(state, { recipient_id: sarah.id, type: 'life_team_ask', title: "Who's your electrician?", body: 'Your connection asked who you trust.', reference_id: electricianAsk.id });
     pushNotification(state, { recipient_id: james.id, type: 'life_team_ask', title: "Who's your electrician?", body: 'Your connection asked who you trust.', reference_id: electricianAsk.id });
     pushNotification(state, { recipient_id: currentUserId, type: 'life_team_reply', title: 'Sarah suggested an electrician', body: 'Sarah Chen suggested Ibrahim Khan. Add him in one tap.', reference_id: electricianAsk.id });
+    const tomJob: ServiceRequest = { id: createId('req'), professional_id: tom.id, member_id: sarah.id, service_needed: 'Basin waste', preferred_dates: 'Last month', location: 'BS6', budget: 80, notes: null, status: 'completed', proposed_time: null, created_at: reviewedAt, updated_at: reviewedAt };
+    const owenJob: ServiceRequest = { id: createId('req'), professional_id: owen.id, member_id: james.id, service_needed: 'Shop lease review', preferred_dates: 'February', location: 'Bristol', budget: 250, notes: null, status: 'completed', proposed_time: null, created_at: reviewedAt, updated_at: reviewedAt };
+    state.serviceRequests.push(tomJob, owenJob);
+    state.jobMedia.push(
+      { id: createId('media'), professional_id: alex.id, service_request_id: completedMine.id, review_id: null, uploaded_by: sarah.id, kind: 'image', template: 'progress', title: 'Squat form check', location_area: 'Bristol', job_date: '2026-09-12', summary_text: null, media_path: 'jobs/alex-form.jpg', before_path: null, duration_seconds: null, consent_status: 'approved', created_at: reviewedAt },
+      { id: createId('media'), professional_id: alex.id, service_request_id: completedMine.id, review_id: null, uploaded_by: currentUserId, kind: 'image', template: 'progress', title: 'Photo from my review', location_area: 'Bristol', job_date: '2026-09-12', summary_text: null, media_path: 'jobs/alex-customer.jpg', before_path: null, duration_seconds: null, consent_status: 'approved', created_at: reviewedAt },
+      { id: createId('media'), professional_id: alex.id, service_request_id: completedSarah.id, review_id: null, uploaded_by: sarah.id, kind: 'video', template: 'progress', title: 'Twelve-week check-in', location_area: 'Bristol', job_date: '2026-10-02', summary_text: null, media_path: 'jobs/alex-checkin.mp4', before_path: null, duration_seconds: 8, consent_status: 'approved', created_at: reviewedAt },
+      { id: createId('media'), professional_id: alex.id, service_request_id: null, review_id: null, uploaded_by: sarah.id, kind: 'image', template: 'portfolio', title: 'Home gym layout', location_area: 'Bristol', job_date: null, summary_text: null, media_path: 'jobs/alex-gym.jpg', before_path: null, duration_seconds: null, consent_status: 'approved', created_at: reviewedAt },
+      { id: createId('media'), professional_id: tom.id, service_request_id: tomJob.id, review_id: null, uploaded_by: sarah.id, kind: 'image', template: 'before_after', title: 'Basin waste replaced', location_area: 'BS6', job_date: '2026-08-20', summary_text: null, media_path: 'jobs/plumber-after.jpg', before_path: 'jobs/plumber-before.jpg', duration_seconds: null, consent_status: 'approved', created_at: reviewedAt },
+      { id: createId('media'), professional_id: owen.id, service_request_id: owenJob.id, review_id: null, uploaded_by: james.id, kind: 'summary', template: 'case_summary', title: 'High-street shop lease', location_area: 'Bristol', job_date: '2026-02-11', summary_text: 'A lease review for a small high-street shop. The client and the other party are not named. Repair terms were rewritten and the break clause was shortened.', media_path: null, before_path: null, duration_seconds: null, consent_status: 'approved', created_at: reviewedAt },
+    );
     state.sampleDataLoaded = true;
     await save(state);
     return state;

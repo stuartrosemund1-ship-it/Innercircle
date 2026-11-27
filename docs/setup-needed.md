@@ -16,7 +16,7 @@ To do it by hand, copy the Project URL and the publishable (anon) key from Proje
 
 ## 2. Apply the schema
 
-The hosted project is `zfgrlqheihcvmjfkpjet` (`https://zfgrlqheihcvmjfkpjet.supabase.co`). `001_lifecircle_schema.sql` is already applied there. Apply `002` through `006` in order in the SQL editor when you are ready. Do not expect 003, 004, 005, or 006 to already be on the hosted database. Only `service_role`, `postgres`, or `supabase_admin` can set `profiles.is_admin`. After 004, make a real member an admin with:
+The hosted project is `zfgrlqheihcvmjfkpjet` (`https://zfgrlqheihcvmjfkpjet.supabase.co`). `001_lifecircle_schema.sql` is already applied there. Apply `002` through `007` in order in the SQL editor when you are ready. Do not expect 003 through 007 to already be on the hosted database. `007_job_media.sql` adds the completed-job gallery and the private `job-media` storage bucket. Only `service_role`, `postgres`, or `supabase_admin` can set `profiles.is_admin`. After 004, make a real member an admin with:
 
 ```sql
 update public.profiles
